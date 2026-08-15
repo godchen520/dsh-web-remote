@@ -14,13 +14,15 @@ DSH（DeepSeek Harness）手机 / 外网远程访问插件。
 
 本插件是一个标准 DSH bundle 包。两种方式任选：
 
-### 方式一：作为依赖安装（推荐）
+### 方式一：GitHub 直接安装（当前推荐）
 
 在 profile 目录（如 `$DSH_HOME/profiles/web`）执行：
 
 ```bash
-pnpm add dsh-web-remote
+pnpm add github:godchen520/dsh-web-remote --config.minimumReleaseAge=0
 ```
+
+> `--config.minimumReleaseAge=0` 用于绕过 pnpm 11 的新包发布年龄校验；若你的 pnpm 无此限制可省略。
 
 然后把 `dsh-web-remote` 加入 profile `package.json` 的 `dsh.profile.bundles` 列表：
 
@@ -34,15 +36,17 @@ pnpm add dsh-web-remote
 }
 ```
 
-### 方式二：GitHub 直接安装
+然后重启 DSH。
+
+### 方式二：npm 安装（包发布到 npm registry 后可用）
 
 ```bash
-pnpm add github:你的用户名/dsh-web-remote
+pnpm add dsh-web-remote
 ```
 
-同样把它加进 `dsh.profile.bundles`。
+同样把它加进 `dsh.profile.bundles` 并重启。
 
-### 方式三：手动 patch（不依赖 npm 安装）
+### 方式三：手动 patch（不依赖 pnpm 安装）
 
 把本包放入 profile 的 `node_modules`（或直接放在 profile 目录旁），然后在 profile 的 `cordis.patch.yml` 追加：
 
