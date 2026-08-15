@@ -1,0 +1,6 @@
+# dsh-web-remote — DSH 手机/外网远程访问插件
+# 作为 bundle 包：profile package.json 的 dsh.profile.bundles 加入本包名即生效；
+# 也可以手动在 profile 的 cordis.patch.yml 里 insert 本行（name 解析自 profile node_modules）。
+- insert:
+    - id: web-remote
+      name: 'dsh-web-remote'
