@@ -1,59 +1,67 @@
 # Contributing
 
-鎰熻阿浣犲 dsh-web-remote 鐨勫叧娉紒
+感谢你对 dsh-web-remote 的关注！
 
-## 寮€鍙戠幆澧?
+## 开发环境
+
 ```bash
-# 鍏嬮殕浠撳簱
+# 克隆仓库
 git clone https://github.com/godchen520/dsh-web-remote.git
 cd dsh-web-remote
 
-# 瀹夎渚濊禆
+# 安装依赖
 pnpm install
 
-# 璇硶妫€鏌?node --check lib/index.mjs
+# 语法检查
+node --check lib/index.mjs
 
-# 杩愯闆嗘垚娴嬭瘯
+# 运行集成测试
 node test/test-dist.mjs
 ```
 
-## 椤圭洰缁撴瀯
+## 项目结构
 
 ```
 dsh-web-remote/
-鈹溾攢鈹€ lib/
-鈹?  鈹斺攢鈹€ index.mjs          # 涓绘彃浠朵唬鐮侊紙Host 绔?+ Client 娉ㄥ叆鑴氭湰锛?鈹溾攢鈹€ test/
-鈹?  鈹斺攢鈹€ test-dist.mjs      # 闆嗘垚娴嬭瘯
-鈹溾攢鈹€ docs/                   # 鎴浘
-鈹溾攢鈹€ cordis.patch.yml        # DSH composition 閰嶇疆
-鈹溾攢鈹€ package.json            # NPM 鍖呴厤缃?鈹斺攢鈹€ README.md
+├── lib/
+│   └── index.mjs          # 主插件代码（Host 端 + Client 注入脚本）
+├── test/
+│   └── test-dist.mjs      # 集成测试
+├── docs/                   # 截图
+├── cordis.patch.yml        # DSH composition 配置
+├── package.json            # NPM 包配置
+└── README.md
 ```
 
-## 鎻愪氦瑙勮寖
+## 提交规范
 
-- `feat:` 鏂板姛鑳?- `fix:` 淇
-- `docs:` 鏂囨。
-- `chore:` 鏋勫缓/宸ュ叿
+- `feat:` 新功能
+- `fix:` 修复
+- `docs:` 文档
+- `chore:` 构建/工具
 
-## 鎻愪氦 PR
+## 提交 PR
 
-1. Fork 鏈粨搴?2. 鍒涘缓鐗规€у垎鏀細`git checkout -b feat/my-feature`
-3. 鎻愪氦鏇存敼锛歚git commit -m 'feat: add xxx'`
-4. 鎺ㄩ€佸垎鏀細`git push origin feat/my-feature`
-5. 鍒涘缓 Pull Request
+1. Fork 本仓库
+2. 创建特性分支：`git checkout -b feat/my-feature`
+3. 提交更改：`git commit -m 'feat: add xxx'`
+4. 推送分支：`git push origin feat/my-feature`
+5. 创建 Pull Request
 
-## 娴嬭瘯
+## 测试
 
-淇敼 `lib/index.mjs` 鍚庯細
+修改 `lib/index.mjs` 后：
 
 ```bash
-# 1. 璇硶妫€鏌?node --check lib/index.mjs
+# 1. 语法检查
+node --check lib/index.mjs
 
-# 2. 澶嶅埗鍒拌繍琛屽壇鏈?cp lib/index.mjs $DSH_HOME/profiles/web/node_modules/dsh-web-remote/lib/index.mjs
+# 2. 复制到运行副本
+cp lib/index.mjs $DSH_HOME/profiles/web/node_modules/dsh-web-remote/lib/index.mjs
 
-# 3. 閲嶅惎 DSH 楠岃瘉
+# 3. 重启 DSH 验证
 ```
 
-## 闂鍙嶉
+## 问题反馈
 
-浣跨敤 [Issue 妯℃澘](../../issues/new/choose) 鎻愪氦闂鎴栧姛鑳借姹傘€?
+使用 [Issue 模板](../../issues/new/choose) 提交问题或功能请求。
