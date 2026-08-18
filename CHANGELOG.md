@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-08-18
+
+### Added
+- README 顶部 banner 标题图
+- 项目文档完善（CHANGELOG、贡献指南、Issue 模板）
+
+## [1.1.0] - 2026-08-17
+
+### Added
+- 微信机器人：iLink 协议直连微信，支持扫码绑定、AI 对话
+
+### Changed
+- 远程面板 UI 重构：三标签页（公网 / 局域网 / 机器人）
+
+## [1.0.0] - 2026-08-15
+
+### Fixed
+- 会话列表过滤（归档 / 子代理 / 孤儿会话）
+
 ## [0.5.0] - 2026-08-17
 
 ### Added
