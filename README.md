@@ -1,5 +1,9 @@
 # dsh-web-remote
 
+<p align="center">
+  <img src="docs/banner.svg" alt="dsh-web-remote" width="100%">
+</p>
+
 [![npm version](https://img.shields.io/badge/npm-dsh--web--remote-blue)](https://github.com/godchen520/dsh-web-remote)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![DSH Compatible](https://img.shields.io/badge/DSH-1.x-brightgreen)](https://github.com/deepseek-ai/deepseek-harness)
