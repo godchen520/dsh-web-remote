@@ -9,6 +9,10 @@
 [![DSH Compatible](https://img.shields.io/badge/DSH-1.x-brightgreen)](https://github.com/deepseek-ai/deepseek-harness)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../../pulls)
 
+<p align="right">
+  <b>中文</b> | <a href="README_EN.md">English</a>
+</p>
+
 > 手机 / 外网远程访问 DeepSeek Harness（DSH）的插件。随时随地通过微信或浏览器控制你的 DSH。
 
 ## ✨ 功能亮点
