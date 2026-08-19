@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `tunnelMode` 配置：`quick` / `custom` / `none` 三种公网隧道模式
+  - `custom`：只起反向代理、不 spawn Cloudflare Quick Tunnel，复用已有稳定隧道/域名（配合 `publicUrl`）
+  - `none`：仅局域网直连
+- `publicUrl` 配置：custom 模式下面板展示的自定义公网地址
+- `requireToken` 配置：可关闭 token/cookie 校验（默认 true；关闭时务必配合 Cloudflare Access 等边缘访问控制）
+- README（中英）、CHANGELOG 相应文档
+
 ## [1.2.1] - 2026-08-18
 
 ### Added

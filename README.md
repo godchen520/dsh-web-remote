@@ -96,6 +96,23 @@ pnpm add github:godchen520/dsh-web-remote
 | `toolsDir` | `''` | 工具与证书缓存目录；留空使用 `$DSH_HOME/tools` |
 | `autoStart` | `true` | 插件加载即自动启动 |
 | `lanOpen` | `true` | 局域网免 token（私网来源放行） |
+| `tunnelMode` | `'quick'` | 公网隧道模式：`quick` 自动起 Quick Tunnel（默认，开箱即用）；`custom` 只起反向代理、不 spawn 隧道（复用你已有的稳定隧道 / 域名）；`none` 仅局域网 |
+| `publicUrl` | `''` | 自定义公网地址；仅 `tunnelMode: 'custom'` 时用于面板展示公网链接（如你的 named tunnel 域名） |
+| `requireToken` | `true` | 是否需要 token 验证。`false` 彻底关闭 token/cookie 校验（务必配合 Cloudflare Access 等边缘访问控制，否则公网裸奔） |
+
+> **custom 模式**：适合「已有自己的稳定公网隧道 / 域名」的场景（如 Cloudflare named
+> tunnel + Access）。把反向代理端口（默认 3081）暴露到你已有隧道的 ingress，再在本插件
+> 配置 `tunnelMode: 'custom'` + `publicUrl: 'https://你的域名'`，即可在保留稳定域名/Access
+> 的前提下，获得改 Host→loopback 的全功能远程（含 DSH 配置平面：设置/凭据/目录选择）与
+> gzip 压缩。示例 patch：
+>
+> ```yaml
+> - id: web-remote
+>   name: 'dsh-web-remote'
+>   config:
+>     tunnelMode: custom
+>     publicUrl: https://dsh.domain.com
+> ```
 
 ## 📱 使用方法
 
