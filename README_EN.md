@@ -96,6 +96,23 @@ All optional. Override in `cordis.patch.yml`:
 | `toolsDir` | `''` | Tool & cert cache directory; empty = `$DSH_HOME/tools` |
 | `autoStart` | `true` | Auto-start on plugin load |
 | `lanOpen` | `true` | LAN token-free mode (private network bypass) |
+| `tunnelMode` | `'quick'` | Public tunnel mode: `quick` auto-starts a Quick Tunnel (default, out-of-box); `custom` starts only the reverse proxy, no spawned tunnel (reuse your own stable tunnel / domain); `none` LAN-only |
+| `publicUrl` | `''` | Custom public base URL; only used by the panel in `tunnelMode: 'custom'` (e.g. your named-tunnel domain) |
+| `requireToken` | `true` | Whether token auth is required. `false` fully disables token/cookie checks (always pair with Cloudflare Access or another edge access control, otherwise the public side is exposed) |
+
+> **custom mode**: best for setups that already own a stable public tunnel / domain (e.g.
+> Cloudflare named tunnel + Access). Point your existing tunnel's ingress at the reverse-proxy
+> port (3081 by default), then set `tunnelMode: 'custom'` + `publicUrl: 'https://dsh.domain.com'`.
+> This keeps your stable domain / Access while gaining Host→loopback full remote access
+> (incl. the DSH config plane: settings / credentials / directory picking) plus gzip. Example patch:
+>
+> ```yaml
+> - id: web-remote
+>   name: 'dsh-web-remote'
+>   config:
+>     tunnelMode: custom
+>     publicUrl: https://dsh.domain.com
+> ```
 
 ## 📱 Usage
 
