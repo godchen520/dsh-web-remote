@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-08-18
+
+### Added
+- `/重启DSH` 命令：微信远程重启 DSH 进程（自动 kill + 启动新实例）
+- `lib/restart.js`：独立重启脚本（detached 执行，8 秒延迟确保消息发出）
+
 ## [1.2.1] - 2026-08-18
 
 ### Added
