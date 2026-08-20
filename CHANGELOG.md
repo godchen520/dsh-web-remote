@@ -2,11 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0] - 2026-08-18
+## [1.3.0] - 2026-08-19
 
 ### Added
-- `/重启DSH` 命令：微信远程重启 DSH 进程（自动 kill + 启动新实例）
-- `lib/restart.js`：独立重启脚本（detached 执行，8 秒延迟确保消息发出）
+- 自定义公网链接：面板支持填写/编辑/清除自定义公网 URL（如 ngrok 地址），持久化保存
+- 自定义端口：局域网模式下支持修改 HTTPS 端口号（1024-65535），带端口占用检测，重启后生效
+- `/监听` 命令：开启会话监听模式，Agent 思考完毕后自动通过微信推送结果
+- `preview-panel.html`：面板 UI 预览页面，方便调试
+
+### Changed
+- 移除"QQ 机器人：施工中"提示
+- 更新插件描述和关键词
 
 ## [1.2.1] - 2026-08-18
 

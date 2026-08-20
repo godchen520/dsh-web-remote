@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-web-remote 面板预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f5f5f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+
+  /* 暗色主题面板 */
+  .panel {
+    width: 420px; background: #2c2c2e; border-radius: 20px;
+    padding: 20px 18px 16px; color: #fff;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    font-size: 14px; line-height: 20px;
+  }
+  .panel h2 { font-size: 18px; font-weight: 600; margin: 0 0 12px; color: #fff; }
+
+  /* 标签栏 */
+  .tabs { display: flex; gap: 0; background: rgba(255,255,255,0.08); border-radius: 10px; padding: 3px; margin-bottom: 14px; }
+  .tab { flex: 1; padding: 7px 0; text-align: center; border: none; background: transparent; color: #8e8e93; font-size: 13px; font-weight: 500; border-radius: 8px; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+  .tab.active { background: #3a3a3c; color: #fff; }
+
+  /* 链接区域 */
+  .urlbox { margin-bottom: 12px; }
+  .label { font-size: 12px; color: #8e8e93; margin-bottom: 2px; }
+  .url { font-size: 13px; color: var(--accent, #0a84ff); word-break: break-all; margin-bottom: 8px; cursor: pointer; padding: 2px 0; }
+  .url:hover { opacity: 0.7; }
+
+  /* 自定义输入区（重点） */
+  .custom-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); }
+  .custom-label { font-size: 12px; color: #8e8e93; margin-bottom: 6px; }
+
+  /* 点击展开模式：默认显示下划线文本 */
+  .click-to-edit { position: relative; }
+  .click-to-edit .placeholder {
+    display: flex; align-items: center; padding: 6px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.2); cursor: pointer;
+    color: #636366; font-size: 13px; transition: all 0.2s;
+  }
+  .click-to-edit .placeholder:hover { border-bottom-color: rgba(255,255,255,0.4); color: #8e8e93; }
+  .click-to-edit .placeholder::after { content: '✏️'; margin-left: 6px; font-size: 11px; }
+  .click-to-edit .input-row { display: none; }
+  .click-to-edit.editing .placeholder { display: none; }
+  .click-to-edit.editing .input-row { display: flex; gap: 6px; align-items: center; }
+  .click-to-edit .input-row input {
+    flex: 1; padding: 7px 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px; color: #fff; font-size: 13px; outline: none; font-family: inherit;
+  }
+  .click-to-edit .input-row input:focus { border-color: #0a84ff; }
+  .click-to-edit .input-row input::placeholder { color: #636366; }
+  .click-to-edit .btn {
+    padding: 7px 12px; border-radius: 8px; border: none; font-size: 12px; font-weight: 500;
+    cursor: pointer; white-space: nowrap; font-family: inherit; transition: all 0.15s;
+  }
+  .btn-primary { background: #0a84ff; color: #fff; }
+  .btn-primary:hover { background: #409cff; }
+  .btn-ghost { background: rgba(255,255,255,0.08); color: #8e8e93; }
+  .btn-ghost:hover { background: rgba(255,255,255,0.12); }
+
+  /* 局域网端口输入：固定前缀 + 可编辑端口 */
+  .port-input-row { display: flex; align-items: center; gap: 0; }
+  .port-fixed { color: #8e8e93; font-size: 13px; white-space: nowrap; }
+  .port-editable {
+    display: inline-flex; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.2);
+    cursor: pointer; padding: 4px 0; transition: border-color 0.2s;
+  }
+  .port-editable:hover { border-bottom-color: rgba(255,255,255,0.4); }
+  .port-editable .port-num { color: var(--accent, #0a84ff); font-size: 13px; font-weight: 500; }
+  .port-editable .port-hint { color: #636366; font-size: 11px; margin-left: 4px; }
+  .port-editable .port-hint::before { content: '✏️ '; }
+  .port-editing .port-display { display: none; }
+  .port-editing .port-input-area { display: flex; gap: 6px; align-items: center; }
+  .port-input-area { display: none; }
+  .port-input-area input {
+    width: 70px; padding: 5px 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; color: #fff; font-size: 13px; outline: none; font-family: inherit;
+  }
+  .port-input-area input:focus { border-color: #0a84ff; }
+
+  /* 操作按钮行 */
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .actions button { flex: 1; padding: 9px 0; border-radius: 10px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn-start { background: #34c759; color: #fff; }
+  .btn-stop { background: rgba(255,255,255,0.08); color: #8e8e93; }
+
+  /* 提示区 */
+  .hint { font-size: 11px; color: #636366; line-height: 1.5; margin-top: 10px; }
+
+  /* 状态指示 */
+  .status-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.on { background: #34c759; }
+  .status-dot.off { background: #ff3b30; }
+  .status-text { font-size: 13px; color: #8e8e93; }
+</style>
+</head>
+<body>
+
+<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+<!-- ===== 公网标签页 ===== -->
+<div class="panel">
+  <h2>远程访问</h2>
+  <div class="tabs">
+    <button class="tab active">公网</button>
+    <button class="tab">局域网</button>
+    <button class="tab">机器人</button>
+  </div>
+  <div class="status-row">
+    <div class="status-dot on"></div>
+    <span class="status-text">运行中</span>
+  </div>
+  <div class="urlbox">
+    <div class="label">公网访问链接（点击复制）</div>
+    <div class="url">https://mills-marked-sessions-hispanic.trycloudflare.com/?token=abc123</div>
+
+    <div class="custom-section">
+      <div class="custom-label">自定义公网链接</div>
+      <div class="click-to-edit" id="pub1">
+        <div class="placeholder" onclick="this.parentElement.classList.add('editing');this.parentElement.querySelector('input').focus()">填写你的 ngrok / frp / Cloudflare 隧道地址</div>
+        <div class="input-row">
+          <input type="text" placeholder="https://xxx.ngrok.io">
+          <button class="btn btn-primary">保存</button>
+          <button class="btn btn-ghost" onclick="this.parentElement.parentElement.classList.remove('editing')">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-start">启动</button>
+    <button class="btn btn-stop">停止</button>
+    <button class="btn btn-ghost" style="flex:0.5">换新链接</button>
+  </div>
+  <div class="hint">注意：公网链接含访问令牌，请勿泄露。</div>
+</div>
+
+<!-- ===== 局域网标签页 ===== -->
+<div class="panel">
+  <h2>远程访问</h2>
+  <div class="tabs">
+    <button class="tab">公网</button>
+    <button class="tab active">局域网</button>
+    <button class="tab">机器人</button>
+  </div>
+  <div class="status-row">
+    <div class="status-dot on"></div>
+    <span class="status-text">运行中</span>
+  </div>
+  <div class="urlbox">
+    <div class="label">局域网直连 192.168.1.100（点击复制）</div>
+    <div class="url">https://192.168.1.100:8443</div>
+
+    <div class="custom-section">
+      <div class="custom-label">自定义端口</div>
+      <div class="port-input-row" id="lan1">
+        <span class="port-fixed">https://192.168.1.100:</span>
+        <div class="port-editable" onclick="this.classList.add('port-editing');this.querySelector('input').focus()">
+          <span class="port-display">
+            <span class="port-num">8443</span>
+            <span class="port-hint">修改</span>
+          </span>
+          <div class="port-input-area">
+            <input type="number" value="8443" min="1024" max="65535" placeholder="端口号">
+            <button class="btn btn-primary">应用</button>
+            <button class="btn btn-ghost" onclick="this.closest('.port-editable').classList.remove('port-editing')">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-start">启动</button>
+    <button class="btn btn-stop">停止</button>
+    <button class="btn btn-ghost" style="flex:0.5">换新链接</button>
+  </div>
+  <div class="hint">同 Wi-Fi 下建议用局域网链接，速度更快。</div>
+</div>
+</div>
+
+</body>
+</html>
