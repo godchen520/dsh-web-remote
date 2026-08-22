@@ -29,23 +29,17 @@
 | 🤖 **微信机器人** | iLink 协议直连微信，支持 AI 对话、会话控制、模型切换 |
 | 👁️ **会话监听** | `/监听` 命令，Agent 思考完毕自动微信通知 |
 
-## 🚀 快速开始
+## ⚡ 一句话安装
 
-**三步上手：**
+复制下面这句话给你的 DSH，它自己会装好一切：
+
+> 请帮我安装 dsh-web-remote 远程访问插件（https://github.com/godchen520/dsh-web-remote），装完告诉我如何重启 DSH Web。
+
+不想麻烦 Agent？命令行一条：
 
 ```bash
-# 1. 安装插件（在 DSH profile 目录执行）
-cd $DSH_HOME/profiles/web
-pnpm add github:godchen520/dsh-web-remote
-
-# 2. 注册 bundle（编辑 package.json）
-# 在 "dsh.profile.bundles" 数组中添加 "dsh-web-remote"
-
-# 3. 重启 DSH
-dsh web
+dsh plugin --profile web add github:godchen520/dsh-web-remote && dsh web
 ```
-
-启动后页面左下角出现 📱 图标 → 点击打开远程面板。
 
 ## 📸 截图
 
