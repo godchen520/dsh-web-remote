@@ -19,35 +19,35 @@
 
 | 功能 | 说明 |
 |------|------|
-| 🌐 **公网访问** | Cloudflare Quick Tunnel，无需公网 IP、无需注册，`cloudflared` 缺失时自动下载 |
-| 📡 **局域网直连** | HTTP + HTTPS 直连（HTTPS 自动生成自签名证书，零配置） |
-| 🔒 **安全认证** | 每次启动生成随机令牌；HttpOnly Cookie；局域网可免 token |
-| ⚡ **性能加速** | 反向代理自动 gzip 压缩，大历史会话加载更快 |
-| 📱 **侧边栏图标** | 手机快捷按钮常驻左下角，刷新不消失 |
+| 🌐 **公网访问** |CloudFlare Quick Tunnel，无需公网IP、无需注册，`云焰的` 缺失时自动下载 |
+| 📡 **局域网直连** |HTTP+HTTPS直连(HTTPS自动生成自签名证书，零配置）|
+| 🔒 **安全认证** |每次启动生成随机令牌；HttpOnly Cookie；局域网免令牌|
+| ⚡ **性能加速** |反向代理自动gzip压缩，大历史会话加载更快|
+| 📱 **侧边栏图标** | 手机快捷按钮常驻左下角 |
 | 🔗 **自定义公网链接** | 支持填写自定义公网 URL（如 ngrok），面板编辑/清除，重启后生效 |
 | 🔌 **自定义端口** | 局域网模式下可修改 HTTPS 端口号，带端口占用检测 |
-| 🤖 **微信机器人** | iLink 协议直连微信，支持 AI 对话、会话控制、模型切换 |
+|🤖**微信机器人** | iLink 协议直连微信，支持 AI 对话、会话控制、模型切换 |
 | 👁️ **会话监听** | `/监听` 命令，Agent 思考完毕自动微信通知 |
 
 ## 🚀 快速开始
 
 **三步上手：**
 
-```bash
-# 1. 安装插件（在 DSH profile 目录执行）
+```猛击
+#1.安装插件（在DSH配置文件目录执行）
 cd $DSH_HOME/profiles/web
-pnpm add github:godchen520/dsh-web-remote
+PNPM添加github:godchen520/dsh-web-remote
 
-# 2. 注册 bundle（编辑 package.json）
-# 在 "dsh.profile.bundles" 数组中添加 "dsh-web-remote"
+#2.注册捆（编辑package.json)
+#在"dsh.profile.bundles"数组中添加"dsh-web-remote”
 
-# 3. 重启 DSH
-dsh web
+#3.重启DSH
+DSH Web
 ```
 
 启动后页面左下角出现 📱 图标 → 点击打开远程面板。
 
-## 📸 截图
+##📸  截图
 
 **快捷按钮**（页面左下角）：
 
@@ -59,38 +59,38 @@ dsh web
 
 ## 📋 安装方式
 
-### 方式一：GitHub 直接安装（推荐）
+###方式一：GitHub直接安装（推荐）
 
-```bash
+```猛击
 cd $DSH_HOME/profiles/web
-pnpm add github:godchen520/dsh-web-remote
+PNPM添加github:godchen520/dsh-web-remote
 ```
 
-在 `package.json` 的 `dsh.profile.bundles` 数组中添加 `"dsh-web-remote"`，重启 DSH。
+在`package.json`的`dsh.profile.bundles` 数组中添加 `"dsh-web-remote"`，重启DSH.
 
 > `--config.minimumReleaseAge=0` 可绕过 pnpm 11 新包发布年龄校验（如需要）。
 
-### 方式二：手动 patch
+###方式二：手动补丁
 
-把本包放入 profile 的 `node_modules`，然后在 `cordis.patch.yml` 追加：
+把本包放入轮廓的`node_modules`，然后在`cordis.patch.yml` 追加：
 
-```yaml
-- insert:
-    - id: web-remote
-      name: 'dsh-web-remote'
+```YAML
+-插入：
+-id:web-remote
+名称：'dsh-web-remote'
 ```
 
-> bundle 方式需重启；cordis.patch.yml 方式会被 HMR 热加载。
+>捆方式需重启；cordis.patch.yml方式会被HMR热加载.
 
-## ⚙️ 配置
+##⚙️  配置
 
-全部可选，不配置即开箱即用。在 `cordis.patch.yml` 里覆盖：
+全部可选，不配置即开箱即用。在 `cordis.patch.yml`里覆盖：
 
-| 参数 | 默认值 | 说明 |
+|参数| 默认值 | 说明 |
 |------|--------|------|
-| `targetPort` | `3080` | DSH 自身端口 |
+| `targetPort` | `3080` |DSH自身端口|
 | `httpPortStart` | `3081` | 局域网 HTTP 起始端口（自动跳过占用） |
-| `httpsPortStart` | `3082` | 局域网 HTTPS 起始端口 |
+| `httpsPortStart` | `3082` |局域网HTTPS起始端口|
 | `qqPortStart` | `3001` | QQ OneBot 桥起始端口 |
 | `cloudflaredPath` | `''` | 指定 cloudflared 路径；留空自动探测 / 自动下载 |
 | `pfxPath` | `''` | 指定 PFX 证书；留空自动生成自签名 |
