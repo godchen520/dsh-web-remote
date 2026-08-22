@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-08-19
+
+### Changed
+- 重构监听逻辑：提取 `startMonitor()` / `stopMonitor()` 函数，消除重复代码
+- 监听模式持久化：重启 DSH 后自动恢复监听状态，无需重新发送 `/监听`
+- 启动时自动恢复监听并发送通知
+
 ## [1.3.0] - 2026-08-19
 
 ### Added
