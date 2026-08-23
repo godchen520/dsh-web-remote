@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-08-19
+
+### Added
+- 飞书机器人：WebSocket 长连接收发消息，支持命令系统
+- 飞书前端配置 UI：绑定表单 + 凭证验证 + 状态显示
+- 飞书后端路由：凭证验证/持久化/状态查询
+- 飞书命令：`/链接`、`/停止远程`、`/监听`、`/帮助`
+- 监听模式通知同时发送飞书和微信
+- DSH 启动通知同时发飞书和微信
+
+### Changed
+- 更新插件描述为"免配置公网隧道 + 局域网 HTTPS 直连 + 自定义公网链接/端口 + 微信/飞书机器人"
+- 新增 dependencies: `@larksuiteoapi/node-sdk`
+
 ## [1.3.2] - 2026-08-19
 
 ### Changed
