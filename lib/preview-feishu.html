@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>飞书机器人配置面板预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #e8e8ed; display: flex; justify-content: center; align-items: flex-start;
+    min-height: 100vh; padding: 30px 16px; gap: 24px; flex-wrap: wrap;
+  }
+  .panel {
+    width: 400px; background: rgba(255,255,255,.92); backdrop-filter: blur(20px);
+    border: 1px solid rgba(0,0,0,.08); border-radius: 24px; padding: 22px 20px 18px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.15); color: #1d1d1f; font-size: 14px; line-height: 22px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .panel.dark { background: rgba(44,44,46,.94); color: #fff; border-color: rgba(255,255,255,.12); }
+  .panel h2 { font-size: 19px; font-weight: 600; letter-spacing: -.2px; margin: 0 0 14px; display:flex; justify-content:space-between; align-items:center; }
+  .close { width:26px;height:26px;border-radius:50%;background:#e5e5ea;color:#8e8e93;border:none;font-size:14px;cursor:pointer; }
+  .dark .close { background:#3a3a3c; color:#98989d; }
+
+  /* 标签栏 */
+  .tabs { display:flex; background:#e9e9ee; border-radius:10px; padding:3px; margin-bottom:14px; gap:2px; }
+  .dark .tabs { background:rgba(255,255,255,.08); }
+  .tab { flex:1; padding:7px 0; text-align:center; border:none; background:transparent; color:#8e8e93; font-size:13px; font-weight:500; border-radius:8px; cursor:pointer; font-family:inherit; }
+  .tab.active { background:#fff; color:#1d1d1f; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .dark .tab.active { background:#3a3a3c; color:#fff; box-shadow:none; }
+
+  /* 通道选择（还原真实面板的分段控件样式） */
+  .channels { display:flex; justify-content:center; gap:2px; margin:2px 0 12px; background:rgba(120,120,128,.12); border-radius:10px; padding:2px; width:fit-content; margin-left:auto; margin-right:auto; }
+  .dark .channels { background:rgba(120,120,128,.24); }
+  .ch-item {
+    cursor:pointer; border:0; outline:none; background:transparent;
+    color:#6e6e73; border-radius:8px; padding:5px 14px; font-size:13px; font-weight:500;
+    font-family:inherit; transition:all .18s ease; -webkit-tap-highlight-color:transparent;
+    display:flex; align-items:center; gap:5px; white-space:nowrap;
+  }
+  .dark .ch-item { color:#98989d; }
+  .ch-item:hover { color:#1d1d1f; }
+  .dark .ch-item:hover { color:#fff; }
+  .ch-icon svg { width:15px; height:15px; vertical-align:-2px; }
+  .ch-item.selected { background:#fff; color:#1d1d1f; box-shadow:0 1px 4px rgba(0,0,0,.1); }
+  .dark .ch-item.selected { background:#3a3a3c; color:#fff; box-shadow:none; }
+
+  /* 状态行 */
+  .status-row { display:flex; align-items:center; gap:7px; margin-bottom:12px; font-size:13px; color:#8e8e93; }
+  .dot { width:9px; height:9px; border-radius:50%; }
+  .dot.off { background:#ff3b30; }
+  .dot.on { background:#34c759; box-shadow:0 0 6px rgba(52,199,89,.6); }
+  .status-text b { font-weight:600; }
+
+  /* 表单区 */
+  .form-section { margin-bottom:14px; }
+  .field-label { font-size:12px; color:#8e8e93; margin-bottom:4px; }
+  .field-input { width:100%; padding:9px 11px; background:#f2f2f7; border:1px solid #d1d1d6; border-radius:9px; color:#1d1d1f; font-size:13px; outline:none; font-family:'SF Mono',Consolas,monospace; transition:border-color .15s; }
+  .field-input:focus { border-color:#0a84ff; background:#fff; }
+  .dark .field-input { background:rgba(120,120,128,.16); border-color:rgba(255,255,255,.14); color:#fff; }
+  .dark .field-input:focus { border-color:#0a84ff; background:rgba(0,0,0,.3); }
+
+  /* 按钮 */
+  .btn-row { display:flex; gap:8px; margin-top:14px; }
+  .btn { flex:1; padding:9px 0; border-radius:10px; border:none; font-size:13px; font-weight:500; cursor:pointer; font-family:inherit; transition:all .15s; }
+  .btn-primary { background:#0a84ff; color:#fff; }
+  .btn-primary:hover { background:#339dff; }
+  .btn-ghost { background:#f2f2f7; color:#8e8e93; }
+  .btn-ghost:hover { background:#e5e5ea; }
+  .dark .btn-ghost { background:rgba(255,255,255,.1); color:#98989d; }
+
+  /* 教程折叠区 */
+  .guide { margin-top:16px; border-top:1px solid rgba(0,0,0,.08); padding-top:12px; }
+  .dark .guide { border-top-color:rgba(255,255,255,.1); }
+  .guide-toggle { display:flex; align-items:center; justify-content:space-between; cursor:pointer; font-size:13px; font-weight:500; user-select:none; }
+  .guide-toggle .arrow { transition:transform .2s; color:#8e8e93; font-size:12px; }
+  .guide.open .arrow { transform:rotate(90deg); }
+  .guide-body { display:none; margin-top:10px; font-size:12.5px; line-height:1.55; color:#636366; }
+  .guide.open .guide-body { display:block; }
+  .dark .guide-body { color:#a1a1a6; }
+  .guide-body ol { padding-left:18px; }
+  .guide-body li { margin-bottom:5px; }
+  .guide-body a { color:#0a84ff; text-decoration:none; }
+  .guide-body code { background:#f2f2f7; padding:1px 5px; border-radius:4px; font-size:11px; font-family:'SF Mono',monospace; }
+  .dark .guide-body code { background:rgba(255,255,255,.12); }
+
+  /* 已连接状态展示 */
+  .connected-info { background:#f2f2f7; border-radius:12px; padding:12px 14px; margin-bottom:14px; font-size:13px; }
+  .dark .connected-info { background:rgba(120,120,128,.14); }
+  .conn-row { display:flex; justify-content:space-between; padding:3px 0; }
+  .conn-row .k { color:#8e8e93; font-size:12px; }
+  .conn-row .v { font-weight:500; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<!-- ============ 浅色主题 · 未配置状态 ============ -->
+<div class="panel" id="p1">
+  <h2>远程访问 <button class="close">×</button></h2>
+  <div class="tabs">
+    <button class="tab">公网</button>
+    <button class="tab">局域网</button>
+    <button class="tab active">机器人</button>
+  </div>
+
+  <!-- 通道选择（还原真实面板的分段胶囊样式） -->
+  <div class="channels">
+    <div class="ch-item"><span class="ch-icon" style="color:#07c160"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348z"/></svg></span><span>微信</span></div>
+    <div class="ch-item"><span class="ch-icon" style="color:#12b7f5"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.395 15.035a40 40 0 0 0-.803-2.264l-1.079-2.695c.001-.032.014-.562.014-.836C19.526 4.632 17.351 0 12 0S4.474 4.632 4.474 9.241c0 .274.013.804.014.836l-1.08 2.695a39 39 0 0 0-.802 2.264c-1.021 3.283-.69 4.643-.438 4.673.54.065 2.103-2.472 2.103-2.472 0 1.469.756 3.387 2.394 4.771-.612.188-1.363.479-1.845.835-.434.32-.379.646-.301.778.343.578 5.883.369 7.482.189 1.6.18 7.14.389 7.483-.189.078-.132.132-.458-.301-.778-.483-.356-1.233-.646-1.846-.836 1.637-1.384 2.393-3.302 2.393-4.771 0 0 1.563 2.537 2.103 2.472.251-.03.581-1.39-.438-4.673"/></svg></span><span>QQ</span></div>
+    <div class="ch-item"><span class="ch-icon" style="color:#29a9eb"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></span><span>纸飞机</span></div>
+    <div class="ch-item"><span class="ch-icon" style="color:#1296db"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><path d="M10.5 7h3l-1.5 4h4l-6 8 1.5-4H8z" fill="#fff"/></svg></span><span>钉钉</span></div>
+    <div class="ch-item selected"><span class="ch-icon" style="color:#00d6b9"><svg viewBox="7 7 26 26" fill="currentColor"><path d="M16.791 30c5.57 0 10.423-3.074 12.955-7.618q.133-.239.258-.484a6 6 0 0 1-.425.699 6 6 0 0 1-.17.23 6 6 0 0 1-.225.274q-.092.105-.188.206a6 6 0 0 1-.407.384 6 6 0 0 1-.24.195 7 7 0 0 1-.292.21q-.094.065-.191.122c-.097.057-.134.081-.204.119q-.21.116-.428.215a6 6 0 0 1-.385.157 6 6 0 0 1-.43.138 6 6 0 0 1-.661.143 6 6 0 0 1-.491.055 6.125 6.125 0 0 1-1.543-.085 7 7 0 0 1-.38-.079l-.2-.051-.555-.155-.275-.081-.41-.125-.334-.107-.317-.104-.215-.073-.26-.091-.186-.066-.367-.134-.212-.081-.284-.11-.299-.119-.193-.079-.24-.1-.185-.078-.192-.084-.166-.073-.152-.067-.153-.07-.159-.073-.2-.093-.208-.099-.222-.108-.189-.093a31.2 31.2 0 0 1-8.822-6.583.202.202 0 0 0-.349.138l.005 9.52v.773c0 .448.222.87.595 1.118A14.75 14.75 0 0 0 16.791 30z"/><path d="M33.151 16.582a8.45 8.45 0 0 0-3.744-.869 8.5 8.5 0 0 0-2.303.317l-.252.075-.177.058-.348.127-.606.265-.617.33-.598.386-.404.306-.419.359-.218.206-.374.37-.269.266-.293.289-.281.278-.299.296-.348.344-.256.254-.085.084-.125.122-.063.06-.095.09-.105.099a15 15 0 0 1-3.072 2.175l.2.093.159.073.153.07.152.067.166.073.192.084.185.078.24.1.193.079.299.119.284.11.212.081.367.134.186.066.26.09.215.073.317.104.334.107.41.125.275.081.555.155.2.051.379.079.433.062.585.037.525-.014.491-.055a6 6 0 0 0 .66-.143l.43-.138.385-.158.427-.215.204-.119.191-.122.292-.21.24-.195.407-.384.188-.206.225-.274.17-.23a6 6 0 0 0 .421-.693l.144-.288 1.305-2.599-.003.006a8.1 8.1 0 0 1 1.697-2.439z"/></svg></span><span>飞书</span></div>
+  </div>
+
+  <!-- 状态行 + 通道说明（还原真实面板结构） -->
+  <div class="status-row">
+    <div class="dot off"></div>
+    <span class="status-text">未配置</span>
+  </div>
+  <div style="font-size:12px;color:#86868b;margin:4px 0 10px;">飞书通道：飞书机器人接入（长连接，无需公网）</div>
+
+  <div class="form-section">
+    <div class="field-label">App ID</div>
+    <input class="field-input" placeholder="cli_xxxxxxxxxxxx">
+  </div>
+  <div class="form-section">
+    <div class="field-label">App Secret</div>
+    <input class="field-input" type="password" placeholder="••••••••••••••••">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary">保存并连接</button>
+  </div>
+
+  <div class="guide open">
+    <div class="guide-toggle" onclick="this.parentElement.classList.toggle('open')">
+      <span>📖 如何获取凭证（约 10 分钟）</span><span class="arrow">▶</span>
+    </div>
+    <div class="guide-body">
+      <ol>
+        <li>打开 <a href="https://open.feishu.cn" target="_blank">open.feishu.cn</a> 并登录</li>
+        <li>创建「企业自建应用」，名字随意</li>
+        <li>添加应用能力 → 启用<b>机器人</b></li>
+        <li>权限管理 → 开通 <code>im:message</code> 与 <code>im:message:send_as_bot</code></li>
+        <li>事件与回调 → 订阅方式选「<b>长连接</b>」→ 添加事件 <code>im.message.receive_v1</code></li>
+        <li>版本管理与发布 → 创建版本并发布</li>
+        <li>回到「凭证与基础信息」复制 App ID / Secret 填到上面</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 深色主题 · 已连接状态 ============ -->
+<div class="panel dark" id="p2">
+  <h2>远程访问 <button class="close">×</button></h2>
+  <div class="tabs">
+    <button class="tab">公网</button>
+    <button class="tab">局域网</button>
+    <button class="tab active">机器人</button>
+  </div>
+
+  <div class="status-row">
+    <div class="dot on"></div>
+    <span class="status-text">飞书机器人：<b>已连接</b> · 长链接收发中</span>
+  </div>
+
+  <div class="connected-info">
+    <div class="conn-row"><span class="k">App ID</span><span class="v">cli_a53f8x2k91qwertz</span></div>
+    <div class="conn-row"><span class="k">App Secret</span><span class="v">••••••••••••</span></div>
+    <div class="conn-row"><span class="k">连接时长</span><span class="v">02:41:07</span></div>
+    <div class="conn-row"><span class="k">今日消息</span><span class="v">收 23 / 发 21</span></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-ghost">重新连接</button>
+    <button class="btn btn-ghost">断开</button>
+  </div>
+
+  <div class="hint" style="margin-top:12px;font-size:12px;color:#98989d;line-height:1.5;">
+    在飞书里给机器人发消息即可控制 DSH，命令与微信一致：帮助 / 链接 / 会话列表 / 选择 N …
+  </div>
+</div>
+
+<script>
+  // 输入框聚焦效果已在 CSS 里，这里只做教程折叠
+</script>
+</body>
+</html>
