@@ -29,5 +29,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.0"
   }
 }
