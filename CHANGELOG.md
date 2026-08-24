@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-08-24
+
+### Changed（模块化重构）
+- **拆分巨石文件**：`index.mjs`（约2100行）拆分为 6 个职责单一的模块
+  - `cert.mjs`：自签名证书生成
+  - `download.mjs`：cloudflared 下载
+  - `proxy.mjs`：HTTP/HTTPS 反向代理
+  - `qq.mjs`：QQ OneBot 桥
+  - `panel.mjs`：面板注入脚本
+  - `store.mjs`：统一持久化存储
+- **统一持久化**：散落的 `weixin-token.json`、`feishu-config.json`、`monitor-mode.json` 等统一到 `plugin-state.json`，旧文件自动迁移保留
+- **监听状态按通道隔离**：微信/飞书独立开关、独立通知，新持久化格式兼容旧格式
+- **错误处理统一**：8 处静默吞错补日志/注释，格式统一为 `[模块] 动作失败`
+- **编码统一**：562 处 unicode 转义改为 UTF-8 中文（运行时字符串值不变）
+
+### Fixed
+- 隧道 URL 正则排除 `api.trycloudflare.com`（cloudflared 失败时错误输出被误抓为链接）
+
 ## [1.4.0] - 2026-08-19
 
 ### Added
