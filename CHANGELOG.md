@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-09-01
+
+### Changed
+- **适配 DSH 最新版**（`@deepseek-ai/dsh` ≥ 0.1.2-rc.1），修复新版 DSH 下无法正常使用的问题
+- 新增适配 DSH 新版的改动（具体改动见各提交）
+
+### Compatibility
+- 适配 DSH 版本：`0.1.2-rc.1` 及以上
+- 不再兼容旧版 DSH（< 0.1.2-rc.1）
+
 ## [2.0.0] - 2026-08-24
 
 ### Changed（模块化重构）
