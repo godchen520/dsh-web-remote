@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.1] - 2026-09-12
+
+### Fixed
+- **微信（iLink）**：增加业务错误检查，避免把失败响应当成功处理
+- **微信（iLink）**：改为「先试后队」——优先直接投递，失败才入队等待补发
+- **微信（iLink）**：发送失败的消息重新入队，不再静默丢失
+
 ## [3.0.0] - 2026-09-01
 
 ### Changed
