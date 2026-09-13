@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.2] - 2026-09-13
+
+### Fixed
+- **监听失灵（关键）**：适配 DSH 新版 API —— `session.events` 属性已改为 `session.snapshotEvents()` 方法。旧代码读到的 `events` 是函数而非数组，导致会话完成检测永远不触发，监听完全失效。现按 `snapshotEvents()` 存在性自动适配，同时保留 `session.events` 数组的向后兼容。
+- **飞书**：修复 access token 未正常返回的问题，增加鉴权失败重试
+- **监听定时器**：改为幂等，避免重复启动多个轮询定时器
+
+### Added
+- **诊断接口** `/remote/diag`：暴露监控实时状态与通知结果记录，便于排查监听问题
+- 监控流程补充诊断日志
+
 ## [3.0.1] - 2026-09-12
 
 ### Fixed
