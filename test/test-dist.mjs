@@ -148,6 +148,47 @@ qq.close();
   console.log('8. 注入脚本完整性 OK');
 }
 
+// 9. 作用域守卫：if(webServer){} 块内声明的函数，不能在块外被使用
+// 背景（真实踩过的两个坑）：
+//   a) channelHealthSnapshot 定义在 if(webServer){} 内，被块外的 snapshot() 调用
+//      → /remote/info 抛 ReferenceError → webServer 直接断连（面板"获取状态失败"）
+//   b) telegramStop 同样被块外的销毁清理调用 → 卸载时抛错
+// 注意：不能用"缩进"判断作用域（函数体内部的调用缩进也 >2），必须按块的行范围判断。
+{
+  const src = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const lines = src.split('\n');
+  const ifIdx = lines.findIndex((l) => /^  if \(webServer\) \{\s*$/.test(l));
+  if (ifIdx < 0) { console.error('9. 找不到 `if (webServer) {` 块'); process.exit(1); }
+  let endIdx = ifIdx + 1;
+  while (endIdx < lines.length && !/^  \}\s*$/.test(lines[endIdx])) endIdx++;
+  if (endIdx >= lines.length) { console.error('9. if(webServer) 块未闭合'); process.exit(1); }
+
+  // 块内声明的函数名
+  const inner = new Set();
+  for (let i = ifIdx + 1; i < endIdx; i++) {
+    const m = lines[i].match(/^\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/);
+    if (m) inner.add(m[1]);
+  }
+  if (!inner.size) { console.error('9. if(webServer) 块内未检出函数声明（守卫可能失效）'); process.exit(1); }
+
+  // 在块外查找这些名字的使用
+  const problems = [];
+  lines.forEach((l, i) => {
+    if (i > ifIdx && i < endIdx) return;                 // 块内，跳过
+    if (/^\s*(\/\/|\*|\/\*)/.test(l)) return;            // 注释，跳过
+    inner.forEach((name) => {
+      if (new RegExp('\\b' + name + '\\b').test(l)) {
+        problems.push(name + '：第 ' + (i + 1) + ' 行在 if(webServer) 块外被使用，但只在块内（第 ' + (ifIdx + 1) + '-' + (endIdx + 1) + ' 行）声明');
+      }
+    });
+  });
+  if (problems.length) {
+    console.error('9. 作用域守卫失败:\n  ' + problems.join('\n  '));
+    process.exit(1);
+  }
+  console.log('9. 作用域守卫 OK（块内 ' + inner.size + ' 个函数声明，块外无误用）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
