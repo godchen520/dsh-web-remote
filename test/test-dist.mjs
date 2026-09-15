@@ -4,7 +4,12 @@ import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { createProxyServer, generateSelfSignedCert, createQQServer, lanIPs } from '../lib/index.mjs';
+// 注意：lib/index.mjs 是 composition 插件，只导出 name/inject/apply；
+// 这些可测工具函数在各自的模块里。
+import { createProxyServer } from '../lib/proxy.mjs';
+import { generateSelfSignedCert, lanIPs } from '../lib/cert.mjs';
+import { createQQServer } from '../lib/qq.mjs';
+import { INJECT_SCRIPT } from '../lib/panel.mjs';
 
 const TARGET = 18080;
 const HTTP_PORT = 18081;
@@ -120,6 +125,28 @@ const qq = createQQServer({ infoUrls: ['http://127.0.0.1:' + TARGET + '/remote/i
 await qq.start(QQ_PORT);
 console.log('7. QQ bridge listening on', QQ_PORT);
 qq.close();
+
+// 8. INJECT_SCRIPT 语法校验（关键回归测试）
+// panel.mjs 里 INJECT_SCRIPT 是模板字面量：任何 \n 之类的转义会被模板引擎
+// 提前解释成真实字符，导致注入到浏览器的脚本跨行/崩溃——表现是"Dsh 界面上按钮全没了"。
+// node --check panel.mjs 只验证外层模块，抓不到这个错误，故在此对内层脚本单独编译。
+{
+  const src = String(INJECT_SCRIPT || '');
+  if (!src.length) { console.error('8. INJECT_SCRIPT 为空'); process.exit(1); }
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(src); // 仅编译不执行 —— 编译器就是权威：真实的换行/转义事故会在此报语法错误
+    console.log('8. INJECT_SCRIPT 编译通过，长度', src.length);
+  } catch (e) {
+    console.error('8. INJECT_SCRIPT 语法错误:', e.message);
+    process.exit(1);
+  }
+  // 关键入口必须仍在（防止整体结构被改坏）
+  for (const marker of ['function create', 'function openPanel', 'function renderBotPage', 'function renderStatus']) {
+    if (src.indexOf(marker) < 0) { console.error('8. INJECT_SCRIPT 缺少入口:', marker); process.exit(1); }
+  }
+  console.log('8. 注入脚本完整性 OK');
+}
 
 proxy.close();
 target.close();
