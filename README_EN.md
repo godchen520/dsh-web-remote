@@ -24,8 +24,13 @@
 | 🔒 **Secure Auth** | Random token per start; HttpOnly Cookie; LAN can be token-free |
 | ⚡ **Performance** | Reverse proxy with automatic gzip compression for faster large session loads |
 | 📱 **Sidebar Icon** | Phone shortcut button persists in the bottom-left corner |
+| 🔗 **Custom Public URL** | Set your own public URL (e.g. ngrok); edit/clear from the panel |
+| 🔌 **Custom Port** | Change the LAN HTTPS port with occupancy detection |
 | 🤖 **WeChat Bot** | iLink protocol direct connection to WeChat; AI chat, session control, model switching |
-| 💬 **QQ Bot** | NapCat OneBot 11 reverse WebSocket (work in progress) |
+| 💬 **Feishu Bot** | WebSocket long connection; command control, monitor notifications |
+| ✈️ **Telegram Bot** | Long polling; HTTP proxy support, command control, monitor push |
+| 👁️ **Session Monitor** | `/monitor` — get notified on your bound channel when the agent finishes |
+| 🩺 **Channel Health** | Per-channel monitoring; auto-stops after 3 consecutive failures, with one-click reconnect |
 
 ## 🚀 Quick Start
 
@@ -113,6 +118,7 @@ Control DSH directly from WeChat:
 **Remote Control Commands:**
 - `/link` — Get public link (auto-starts if stopped)
 - `/stop` — Stop remote service
+- `/monitor` — Toggle session monitor (notify when agent finishes)
 
 **Session Management:**
 - `/sessions` — List all sessions
@@ -128,6 +134,38 @@ Control DSH directly from WeChat:
 **Chat:**
 - Send content directly → auto-sends to selected session with result
 - Shows prompt to select a session when none is selected
+
+## 💬 Feishu Bot
+
+Control DSH directly from Feishu (Lark):
+
+- `/link` — Get public link
+- `/stop` — Stop remote service
+- `/monitor` — Toggle session monitor
+- `/help` — Show command list
+
+**Setup:** DSH Web panel → Bot tab → Feishu, fill in App ID and App Secret, then bind.
+
+## ✈️ Telegram Bot
+
+Control DSH directly from Telegram:
+
+- `/link` — Get public link
+- `/stop` — Stop remote service
+- `/monitor` — Toggle session monitor
+- `/help` — Show command list
+
+**Setup:** DSH Web panel → Bot tab → Telegram, fill in the Bot Token, then bind.
+
+**Proxy:** If the Telegram API is unreachable from your network, configure an HTTP proxy in the panel.
+
+## 🩺 Channel Health Monitoring
+
+WeChat / Feishu / Telegram are monitored independently:
+
+- **3 consecutive** send failures → that channel stops automatically and raises an alert
+- The remote icon shows a **red dot**
+- A disconnect page offers a **one-click reconnect** button
 
 ## ❓ FAQ
 

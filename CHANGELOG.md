@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-09-13
+
+### Added
+- **Telegram 通道**（`lib/telegram.mjs`）：长轮询收发消息，支持 HTTP 代理、命令系统、监听推送、面板配置
+- **三通道健康监测**：微信 / 飞书 / Telegram 各自独立监测，连续 3 次失败即自动停止
+  - 远程图标显示红点告警
+  - 断线时提供直达页面与「一键重连」按钮
+
+### Fixed
+- **面板按钮全部消失（关键）**：`INJECT_SCRIPT` 模板字面量中的 `\n` 被提前转义，导致注入脚本语法崩溃
+- **作用域错误**：`channelHealthSnapshot` / `telegramStop` 在块内声明却在块外调用，触发 `ReferenceError`
+
+### 测试
+- 新增 `INJECT_SCRIPT` 编译校验，防止模板转义事故复发
+- 新增作用域守卫测试，修复失效的 `test-dist` 导入
+
 ## [3.0.2] - 2026-09-13
 
 ### Fixed
