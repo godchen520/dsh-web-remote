@@ -173,11 +173,22 @@ Official QQ bot via the **QQ Open Platform** (not NapCat protocol emulation):
 
 **Scenarios:** QQ group chat + message-list private chat (C2C).
 
-**Setup:**
+**Setup (two options):**
+
+**Option 1 — QR binding (recommended; no secrets to copy):**
+
+1. DSH Web panel → Bot tab → **QQ官方** → click "📱 扫码绑定"
+2. Scan the QR code with **mobile QQ**
+3. Pick the bot you want to bind in the page that opens, then confirm
+4. Credentials are filled in automatically and the channel connects
+
+> Scanning **binds an existing bot** — it does not create one. Create one first via Option 2 if needed.
+
+**Option 2 — Manual entry:**
 
 1. Open the [QQ Open Platform quick-create page](https://q.qq.com/qqbot/openclaw/login.html), sign in with QQ, click "Create Bot" (individual accounts may create up to 5)
 2. Copy the **AppID** and **AppSecret** from the platform's developer settings
-3. DSH Web panel → Bot tab → **QQ官方**, fill them in and click connect
+3. Paste them into the panel and click connect
 
 **Highlights:**
 
