@@ -167,6 +167,18 @@ WeChat / Feishu / Telegram are monitored independently:
 - The remote icon shows a **red dot**
 - A disconnect page offers a **one-click reconnect** button
 
+## 🔧 Compatibility
+
+| DSH version | Status |
+|---|---|
+| **0.2.x (tested on 0.2.0-rc.2)** | ✅ Supported |
+| 0.1.2-rc.1 ~ 0.1.x | ✅ Supported |
+| < 0.1.2-rc.1 | ❌ Not supported (`session.events` was still a property back then; no `snapshotEvents()`) |
+
+This plugin **imports no `@deepseek-ai/*` package** — every host capability (`webServer`, `subprocess`, `agents`, `sessions`, `sessionQuery`, …) comes from cordis service injection. So a DSH change to **package exports** (e.g. 0.2.x removing `settingsNamespace` / `installSettingsSection` from `dsh-settings`) cannot affect it.
+
+Only the **service interfaces themselves** need adapting: currently `session.snapshotEvents()` (the 0.1.2+ form).
+
 ## ❓ FAQ
 
 **Q: Public link shows "not secure"?**

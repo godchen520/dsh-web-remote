@@ -169,6 +169,18 @@ pnpm add github:godchen520/dsh-web-remote
 - 远程图标显示**红点**提示
 - 点击进入断开提示页，提供**一键重连**按钮
 
+## 🔧 兼容性
+
+| DSH 版本 | 状态 |
+|---|---|
+| **0.2.x（0.2.0-rc.2 实测）** | ✅ 支持 |
+| 0.1.2-rc.1 ~ 0.1.x | ✅ 支持 |
+| < 0.1.2-rc.1 | ❌ 不支持（那之前 `session.events` 还是属性，没有 `snapshotEvents()`） |
+
+本插件**不 import 任何 `@deepseek-ai/*` 官方包** —— 宿主能力（`webServer`、`subprocess`、`agents`、`sessions`、`sessionQuery` 等）全部通过 cordis 服务注入获取。因此 DSH 改动**包级导出**（例如 0.2.x 移除 `dsh-settings` 的 `settingsNamespace` / `installSettingsSection`）不会影响它。
+
+需要跟着 DSH 适配的只有**服务接口本身**：目前用到 `session.snapshotEvents()`（0.1.2+ 的新形式）。
+
 ## ❓ 常见问题
 
 **Q: 公网链接打开提示"不安全"？**

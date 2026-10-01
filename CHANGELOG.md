@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.1] - 2026-09-30
+
+### Changed（仅文档与声明，运行时行为不变）
+
+- **更新 DSH 兼容性声明**：原写「适配 DSH 0.1.2-rc.1+」（写于 0.1.2-rc.1 为最新版时），现更新为
+  **「0.1.2-rc.1 至 0.2.x（0.2.0-rc.2 实测）」**。
+- **README 新增「兼容性」章节**（中英文）：DSH 版本支持表格 + 说明本插件
+  **不 import 任何 `@deepseek-ai/*` 官方包**，宿主能力全部走 cordis 服务注入，
+  因此 DSH 对**包级导出**的破坏性改动（如 0.2.x 移除 `dsh-settings` 的
+  `settingsNamespace` / `installSettingsSection`）不影响本插件。
+
+### 为什么 0.2.x 无需改代码
+
+| 检查项 | 结果 |
+|---|---|
+| import 官方包 | 0 个（仅 Node 内置 + 内部模块） |
+| 宿主能力来源 | `ctx.get(...)` / `ctx.inject([...])` 服务注入 |
+| 需要跟进的宿主接口 | `session.snapshotEvents()`（0.1.2+ 形式，已适配） |
+
 ## [3.1.0] - 2026-09-13
 
 ### Added
