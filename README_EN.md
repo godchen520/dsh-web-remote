@@ -29,8 +29,9 @@
 | 🤖 **WeChat Bot** | iLink protocol direct connection to WeChat; AI chat, session control, model switching |
 | 💬 **Feishu Bot** | WebSocket long connection; command control, monitor notifications |
 | ✈️ **Telegram Bot** | Long polling; HTTP proxy support, command control, monitor push |
+| 🐧 **QQ Official Bot** | QQ Open Platform official integration; WebSocket long connection — **no extra QQ account, no public endpoint/ICP filing** |
 | 👁️ **Session Monitor** | `/monitor` — get notified on your bound channel when the agent finishes |
-| 🩺 **Channel Health** | Per-channel monitoring; auto-stops after 3 consecutive failures, with one-click reconnect |
+| 🩺 **Channel Health** | Per-channel monitoring (WeChat/Feishu/Telegram/QQ); auto-stops after 3 consecutive failures, red-dot shortcut + one-click reconnect |
 
 ## 🚀 Quick Start
 
@@ -159,13 +160,46 @@ Control DSH directly from Telegram:
 
 **Proxy:** If the Telegram API is unreachable from your network, configure an HTTP proxy in the panel.
 
+## 🐧 QQ Official Bot
+
+Official QQ bot via the **QQ Open Platform** (not NapCat protocol emulation):
+
+- `/link` — Get public link
+- `/stop` — Stop remote service
+- `/monitor` — Toggle session monitor
+- `/model` — Show current model
+- `/status` — Channel status
+- `/help` — Show command list
+
+**Scenarios:** QQ group chat + message-list private chat (C2C).
+
+**Setup:**
+
+1. Open the [QQ Open Platform quick-create page](https://q.qq.com/qqbot/openclaw/login.html), sign in with QQ, click "Create Bot" (individual accounts may create up to 5)
+2. Copy the **AppID** and **AppSecret** from the platform's developer settings
+3. DSH Web panel → Bot tab → **QQ官方**, fill them in and click connect
+
+**Highlights:**
+
+| Item | Notes |
+|---|---|
+| Extra QQ account | **Not required** — the platform assigns a dedicated bot identity; your QQ is only the admin |
+| Public endpoint | **Not required** — WebSocket long connection with built-in heartbeat and RESUME |
+| ICP filing | **Not required** |
+| Session persistence | Supported — survives restarts via RESUME, replaying missed events |
+| Proactive push | Supported (you must have messaged the bot first; group needs owner permission) |
+
+**Group chat:** the group owner simply adds the bot to the group. Receiving *all* group messages requires the owner to enable it in the bot settings.
+
+**Coexistence:** independent from the existing **QQ (NapCat)** channel — both can run at once. NapCat is more feature-complete but carries ban risk; the official bot is compliant and stable.
+
 ## 🩺 Channel Health Monitoring
 
-WeChat / Feishu / Telegram are monitored independently:
+WeChat / Feishu / Telegram / QQ Official are monitored independently:
 
-- **3 consecutive** send failures → that channel stops automatically and raises an alert
-- The remote icon shows a **red dot**
-- A disconnect page offers a **one-click reconnect** button
+- **3 consecutive** failures → that channel stops automatically and raises an alert
+- The remote icon shows a **red dot** (lights up when any channel is down)
+- **Clicking the red dot jumps straight** to the broken channel page, with a **one-click reconnect** button
 
 ## 🔧 Compatibility
 

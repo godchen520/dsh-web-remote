@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.0] - 2026-10-01
+
+### Added — QQ 官方机器人通道（QQ 开放平台 Agent 接入）
+
+新增 `lib/qqbot.mjs`，一条**合规、无需额外 QQ 号**的 QQ 通道。
+
+| 项 | 说明 |
+|---|---|
+| 接入方式 | 官方 SDK `@tencent-connect/qqbot-nodejs` + **WebSocket 长连接** |
+| 公网依赖 | **无** —— 不需要公网入口、不需要备案 |
+| 场景 | QQ 群聊 + 消息列表单聊 |
+| SDK 体积 | 1.11 MB（**零新增依赖**，只用到已装的 `ws`） |
+
+**能力**
+- 命令：`/帮助` `/链接` `/启动` `/停止` `/监听` `/模型` `/状态`
+- 监听推送（会话思考完毕 → 推到 QQ）
+- 会话持久化（`FileKVStore`）→ 进程重启后可 RESUME 补发漏掉的消息
+- 文本自动分片（上限 5000 字符，优先在换行处断开）
+- 已接入统一的**通道健康监测**（红点 / 断开页 / 一键重连）
+
+**健壮性措施**（本次特别关注）
+- **动态 `import` SDK**：SDK 缺失或装坏只让本通道不可用，**不影响插件整体加载**
+- **AppSecret 只存在通道闭包内**，不出现在 `status()`、HTTP 接口或日志里
+- **`start()` 采用事件竞速而非 `await`**：SDK 的 `start()` 是长跑调用，直接 await 会永久挂起
+- **手动实现一次性监听**：SDK 的 `QQBot` 不是 EventEmitter（只有 `on`/`off`，**没有 `once()`**）
+- **错误分类**：`auth` / `network` / `rate-limit` / `rejected` / `sdk-missing` / `unknown`，
+  含 QQ 侧真实报错格式（如 `10004 机器人不存在`）
+- **启动期瞬时错误不判死**：只有鉴权类与缺 SDK 才快速失败，网络抖动继续等待就绪
+- 事件回调全部包 `try/catch`，异常不会穿透进 SDK；`stop()` 幂等
+
+### Changed
+
+- 面板：`QQ官方` / `Telegram` / `飞书` / `钉钉` 通道不再显示无意义的通用「绑定 / 解绑」按钮
+  （这些通道在各自表单里有专属的连接 / 断开按钮）
+- 依赖新增：`@tencent-connect/qqbot-nodejs`、`@tencent-connect/qqbot-connector`
+
 ## [3.1.1] - 2026-09-30
 
 ### Changed（仅文档与声明，运行时行为不变）
