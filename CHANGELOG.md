@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 ## [3.3.0] - 2026-10-02
 
+### Fixed — 局域网链接必然撞自签名证书（面板只给 HTTPS 一条）
+
+**问题**：局域网面板只渲染一条链接，且只要有 `httpsPort` 就一律拼成 `https://`：
+
+```js
+url: (info.httpsPort ? 'https://' : 'http://') + ip + ':' + (info.httpsPort || info.port)
+```
+
+而 HTTPS 用的是**自签名证书**，浏览器必然拦下：
+
+```
+-202: ERR_CERT_AUTHORITY_INVALID
+```
+
+用户照抄面板给的链接 → 一定打不开，看起来像"远程连接坏了"。
+
+**修复**：局域网并列给**两条**，各标用途 ——
+
+| 链接 | 说明 |
+|---|---|
+| `http://ip:<httpPort>/` | **推荐 · 免证书**，浏览器直接打开（非安全上下文，剪贴板 API 等受限） |
+| `https://ip:<httpsPort>/` | 自签名证书，浏览器提示不安全，需手动「高级 → 继续前往」（安全上下文） |
+
+同时：
+- 扫码二维码改为指向 **HTTP** 地址（手机扫码后直接能开，不撞证书拦截页）
+- 点击复制改挂在**各自的链路元素**上（原先挂在容器、且写在 `forEach` 里，两条链接会互相触发，复制内容不可预期）
+
+### Added — HTTP / HTTPS 端口可分别自定义
+
+原先只有 HTTPS 端口能改（`/remote/set-port` 只认 `customPort`）。现在：
+
+- `/remote/set-port` 接受 `{ port, kind }`，`kind: 'http' | 'https'`（缺省 `https`，兼容旧调用）
+- 两个端口分别持久化：`customHttpPort` / `customPort`
+- **同端口冲突提前拦截**并给出明确提示（HTTP 与 HTTPS 是两个独立监听，不能同端口）
+- 局域网面板渲染两行可编辑端口，改完自动 `stop() + start()` 使新端口立即生效
+
+> 想让局域网用 `http://192.168.x.x:5555/`？把 HTTP 端口设为 5555、HTTPS 另换一个即可
+> （例如 HTTPS 设 5556）。
+
 ### Fixed — 官方桌面版里「远程」按钮完全不显示
 
 **问题**：只注册了 `webServer.tapIndex`（旧 API，字符串替换 index.html）。
