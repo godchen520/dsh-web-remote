@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.1] - 2026-10-02
+
+### Fixed — QQ 推送目标持久化的三个补漏
+
+3.2.0 引入的 `lastTarget` 持久化只覆盖了部分启动路径，本版补齐。
+
+- **「一键重连」路径漏了目标恢复**（`lib/index.mjs` 的 `qqbotReconnectHandler`）：
+  面板点「断开」再点「一键重连」时通道会重建，但推送目标没挂回去 ——
+  表现为主动推送失效，直到有人再给机器人发一条消息。此前只在配置保存 / 扫码绑定 /
+  重启启动三条路径上调用了恢复。
+- **断开时未清理旧目标**（`qqbotDisconnectHandler`）：
+  断开后换另一台机器人的凭据再启动，会把**上一台机器人**的 `lastTarget` 恢复回来。
+  QQ 侧的 `targetId` 是按机器人隔离的 openid，旧值对新机器人无效，只会让主动推送持续报错。
+  现在断开时一并写入 `lastTarget: null`（`store.save` 是 deepMerge，赋 `null` 即整棵清除）。
+- **热路径写放大**：`onMessage` 原先**每条消息**都无条件落盘一次整个状态文件。
+  现在与 `getLastTarget()` 比较，**只在目标真的变化时**才写。
+
+### 说明
+
+- 运行时行为只在这三处变化，其余与 3.2.0 一致。
+- `lastTarget` 为 `null` 时所有读取点（恢复逻辑、`getLastTarget()`、`status()`）均已确认安全。
+
 ## [3.2.0] - 2026-10-01
 
 ### Added — QQ 官方机器人通道（QQ 开放平台 Agent 接入）
@@ -36,8 +58,6 @@ All notable changes to this project will be documented in this file.
   含 QQ 侧真实报错格式（如 `10004 机器人不存在`）
 - **启动期瞬时错误不判死**：只有鉴权类与缺 SDK 才快速失败，网络抖动继续等待就绪
 - 事件回调全部包 `try/catch`，异常不会穿透进 SDK；`stop()` 幂等
-- **推送目标持久化**：`lastTarget` 落地到 `store`，重启 DSH 后**无需再给机器人发消息**也能主动推送
-  （与微信/飞书/Telegram 的 chatId 持久化行为对齐；非法 scope/targetId 会被 `setLastTarget` 拒绝）
 
 ### Changed
 
