@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-10-02
+
+### Added — 目标端口自动探测（支持 DSH 官方桌面版）
+
+**问题**：插件把 `targetPort` 默认写死为 `3080`（当时 `dsh web` 固定用这个端口）。
+但 **DSH 官方桌面版由宿主动态分配端口**（`dsh-host-webserver` 的注释明确写着
+"the OS-assigned value when `config.port` is 0"），实测为 `19387`。
+
+写死导致的连锁故障：
+
+| 现象 | 原因 |
+|---|---|
+| 隧道 **502 Bad Gateway / Host Error** | cloudflared → 插件代理(3081) → 转发到 **3080**（已无服务） |
+| DSH token 读取失败 | `connection.authenticatedUrl('http://127.0.0.1:' + targetPort)` 也用了错的端口 |
+| 微信/飞书/QQ 通道正常 | 它们直连平台，不经过该代理，所以掩盖了问题 |
+
+**修复**：目标端口按优先级探测 ——
+
+1. 显式配置 `targetPort`（有则最优先，保持可覆盖）
+2. 环境变量 `DSH_WEB_URL` 里解析端口（桌面版会带真实端口）
+3. 环境变量 `DSH_PORT`
+4. 兜底 `3080`
+
+新增 `/remote/info` 字段 `targetPort` 与 `portSource`（`config` / `env` / `default`），
+便于以后判断端口是从哪来的。
+
+### Changed
+
+- 端口不再是隐含的常量，改为可观测：出问题时 `GET /remote/info` 即可看到实际值。
+
 ## [3.2.2] - 2026-10-02
 
 ### Fixed — 3.2.1 的「写放大优化」把目标持久化改成了静默失效
