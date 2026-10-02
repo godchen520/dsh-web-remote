@@ -20,12 +20,13 @@
 | Feature | Description |
 |---------|-------------|
 | 🌐 **Public Access** | Cloudflare Quick Tunnel — no public IP or registration needed; auto-downloads `cloudflared` |
-| 📡 **LAN Direct** | HTTP + HTTPS direct connection (HTTPS with auto-generated self-signed cert, zero config) |
+| 🖥️ **Official Desktop App** | Works in the DSH desktop app (`dsh-app://`): button injection via the official structured channel, target port auto-detection |
+| 📡 **LAN Direct** | HTTP + HTTPS as **two parallel links**: HTTP needs no cert, HTTPS is self-signed (just click "Proceed") |
 | 🔒 **Secure Auth** | Random token per start; HttpOnly Cookie; LAN can be token-free |
 | ⚡ **Performance** | Reverse proxy with automatic gzip compression for faster large session loads |
 | 📱 **Sidebar Icon** | Phone shortcut button persists in the bottom-left corner |
 | 🔗 **Custom Public URL** | Set your own public URL (e.g. ngrok); edit/clear from the panel |
-| 🔌 **Custom Port** | Change the LAN HTTPS port with occupancy detection |
+| 🔌 **Custom Port** | HTTP / HTTPS ports are **independently configurable**, with same-port conflict blocking and occupancy detection |
 | 🤖 **WeChat Bot** | iLink protocol direct connection to WeChat; AI chat, session control, model switching |
 | 💬 **Feishu Bot** | WebSocket long connection; command control, monitor notifications |
 | ✈️ **Telegram Bot** | Long polling; HTTP proxy support, command control, monitor push |
@@ -92,7 +93,7 @@ All optional. Override in `cordis.patch.yml`:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `targetPort` | `3080` | DSH's own port |
+| `targetPort` | auto-detected | DSH's own port. **Explicit config wins**; otherwise `DSH_WEB_URL` → `DSH_PORT` → fallback `3080` |
 | `httpPortStart` | `3081` | LAN HTTP start port (auto-skips occupied) |
 | `httpsPortStart` | `3082` | LAN HTTPS start port |
 | `qqPortStart` | `3001` | QQ OneBot bridge start port |
@@ -110,7 +111,36 @@ All optional. Override in `cordis.patch.yml`:
 3. Open the link in your phone browser
 
 **Public:** `https://xxx.trycloudflare.com/?token=...`
-**LAN:** `https://192.168.x.x:3082` (same Wi-Fi; token-free by default)
+
+**LAN** (same Wi-Fi; token-free by default, **two parallel links**):
+
+- `http://192.168.x.x:3081` — **recommended**: no cert, opens straight away (not a secure context; clipboard API etc. are restricted)
+- `https://192.168.x.x:3082` — self-signed cert: the browser warns, click "Advanced → Proceed" (secure context)
+
+**Panel:**
+- Public tab: set a custom public URL (e.g. your own ngrok address)
+- LAN tab: each link's **port number is click-to-edit** (HTTP and HTTPS separately); the QR code points at the HTTP address so a phone scan opens it directly
+
+## 🖥️ Official Desktop App
+
+The plugin works in the DSH desktop app (window URL `dsh-app://app/`). Two differences from the browser build:
+
+| Item | Note |
+|---|---|
+| **Button injection** | The desktop app uses the **static deployment** render path, which only consumes the official **structured injection rows** (`webserver/index-inject`) and **does not run `tapIndex`**. The plugin now uses both channels, so either build is covered |
+| **Target port** | The desktop app lets the host assign the port dynamically (measured: `19387`), and the plugin process **cannot see** `DSH_WEB_URL` (that is injected into the agent shell). It must be set explicitly |
+
+Add the port to the profile's `cordis.patch.yml`:
+
+```yaml
+- id: web-remote
+  name: dsh-web-remote
+  config:
+    targetPort: 19387      # replace with your desktop app's actual port
+```
+
+> Without it the plugin falls back to `3080`, which shows up as a tunnel **502 Bad Gateway / Host Error**.
+> `/remote/info` returns `targetPort` and `portSource` (`config` / `env` / `default`) so you can confirm which value was used.
 
 ## 🤖 WeChat Bot
 
@@ -226,8 +256,10 @@ Only the **service interfaces themselves** need adapting: currently `session.sna
 
 ## ❓ FAQ
 
-**Q: Public link shows "not secure"?**
-A: Expected for self-signed HTTPS certs. Choose "Continue anyway" in your phone browser. Edge may need "Enhanced Security" turned off.
+**Q: LAN link shows "not secure"?**
+A: That is the **self-signed HTTPS cert** behaving as expected (the public tunnel uses a real cert and never warns).
+**Simplest fix: use the HTTP link the panel lists alongside it** — no cert, opens straight away.
+Only use the HTTPS one when you actually need a secure context (clipboard API etc.): choose "Continue anyway" on mobile, or turn off "Enhanced Security" in Edge.
 
 **Q: Link changes after DSH restart?**
 A: Public tunnel generates a new address each restart — this is normal. WeChat-bound tokens auto-restore.
