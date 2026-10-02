@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.2.2] - 2026-10-02
+
+### Fixed — 3.2.1 的「写放大优化」把目标持久化改成了静默失效
+
+3.2.1 为了解决热路径写放大，在调用方的 `onMessage` 里加了去重比较：
+
+```js
+const cur = qqbotChannel.getLastTarget();          // ← 此时已是被覆盖后的新值
+if (!cur || cur.scope !== msg.scope || ...) { ... } // ← 恒为 false
+```
+
+但通道在调用 `onMessage` **之前**就已把新目标写进自己的 `state`（`qqbot.mjs`
+`handleMessage` 中先 `state.lastTarget = …`，后 `await onMessage(…)`），
+因此该比较**恒等** → `qqbotSaveConfig` **永远不执行** → 目标从不落盘。
+
+表现与修复前完全一样：**重启 DSH 后仍必须先给机器人发一条消息**，主动推送才生效。
+而且这段代码"看起来是对的"，9 项测试也全过（这块当时没有任何覆盖）。
+
+### Changed
+
+- **变更判断移入通道**（信息最全的地方）：新增导出纯函数 `targetChanged(prev, next)`，
+  通道用**覆盖前的旧值**比较，只有真正变化时才触发新回调 `onTargetChange`。
+- `index.mjs` 改为通过 `onTargetChange` 持久化，`onMessage` 里不再落盘
+  （那里拿不到旧值，比较必然失效）。
+- 写放大的问题**同时仍然解决**：目标不变时不落盘。
+
+### Added — 回归测试（本块此前覆盖为 0）
+
+| # | 测试 | 作用 |
+|---|---|---|
+| 10 | `targetChanged` 真值表（9 例） | 覆盖本次出错的判断逻辑，含数字/字符串 targetId 视为同一目标 |
+| 11 | `setLastTarget` 入参校验（6 例） | 拒绝 null / 缺字段 / 非法 scope |
+| 12 | **落盘路径守卫** | 断言 `onMessage` 里不得出现 `qqbotSaveConfig` 或 `getLastTarget`，且 `onTargetChange` 必须接线 |
+
+第 12 项是**形态守卫**（对着 3.2.1 的 bug 形状写的），并已自检：
+对「修复版 / 塞回落盘 / 塞回 getLastTarget / 删掉接线」四种输入分别为
+通过、拦下、拦下、拦下 —— 既不过严也不失效。
+
 ## [3.2.1] - 2026-10-02
 
 ### Fixed — QQ 推送目标持久化的三个补漏

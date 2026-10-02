@@ -10,6 +10,7 @@ import { createProxyServer } from '../lib/proxy.mjs';
 import { generateSelfSignedCert, lanIPs } from '../lib/cert.mjs';
 import { createQQServer } from '../lib/qq.mjs';
 import { INJECT_SCRIPT } from '../lib/panel.mjs';
+import { createQQBotChannel, targetChanged } from '../lib/qqbot.mjs';
 
 const TARGET = 18080;
 const HTTP_PORT = 18081;
@@ -187,6 +188,94 @@ qq.close();
     process.exit(1);
   }
   console.log('9. 作用域守卫 OK（块内 ' + inner.size + ' 个函数声明，块外无误用）');
+}
+
+// 10. QQ 推送目标：变更判断（纯函数真值表）
+// 背景：3.2.1 曾在调用方的 onMessage 里用 getLastTarget() 与来消息比较去做去重，
+// 但通道在那之前已把新值写进 state → 比较恒等 → 目标永远不落盘（静默失效）。
+// 判断必须基于"覆盖前的旧值"，即本函数。
+{
+  const cases = [
+    // [prev, next, 期望 changed, 说明]
+    [null, { scope: 'c2c', targetId: 'A' }, true, '首次（无旧值）'],
+    [{ scope: 'c2c', targetId: 'A' }, { scope: 'c2c', targetId: 'A' }, false, '完全相同 → 不该落盘'],
+    [{ scope: 'c2c', targetId: 'A' }, { scope: 'c2c', targetId: 'B' }, true, 'targetId 变了'],
+    [{ scope: 'c2c', targetId: 'A' }, { scope: 'group', targetId: 'A' }, true, 'scope 变了'],
+    [{ scope: 'c2c', targetId: 123 }, { scope: 'c2c', targetId: '123' }, false, '数字/字符串应视为同一目标'],
+    [null, null, false, '非法 next 不算变化'],
+    [null, { scope: 'c2c', targetId: '' }, false, '空 targetId 不算变化'],
+    [null, { scope: '', targetId: 'A' }, false, '空 scope 不算变化'],
+    [{ scope: 'c2c', targetId: 'A' }, undefined, false, 'undefined next 不算变化'],
+  ];
+  let pass = 0;
+  const fails = [];
+  for (const [prev, next, want, desc] of cases) {
+    const got = targetChanged(prev, next);
+    if (got === want) pass++; else fails.push(desc + '：期望 ' + want + ' 实得 ' + got);
+  }
+  if (fails.length) { console.error('10. targetChanged 失败:\n  ' + fails.join('\n  ')); process.exit(1); }
+  console.log('10. targetChanged 真值表 OK（' + pass + '/' + cases.length + '）');
+}
+
+// 11. QQ 推送目标：setLastTarget 入参校验（恢复持久化目标时必须拒绝脏数据）
+{
+  const ch = createQQBotChannel({});
+  const cases = [
+    [null, false, 'null'],
+    [{}, false, '空对象'],
+    [{ scope: 'c2c', targetId: '' }, false, '缺 targetId'],
+    [{ scope: 'bad', targetId: 'x' }, false, '非法 scope'],
+    [{ scope: 'c2c', targetId: 'ABC' }, true, '合法 c2c'],
+    [{ scope: 'group', targetId: 'G1' }, true, '合法 group'],
+  ];
+  let pass = 0;
+  const fails = [];
+  for (const [inp, want, desc] of cases) {
+    const got = ch.setLastTarget(inp);
+    if (got === want) pass++; else fails.push(desc + '：期望 ' + want + ' 实得 ' + got);
+  }
+  const final = ch.getLastTarget();
+  if (!final || final.scope !== 'group' || final.targetId !== 'G1') {
+    fails.push('最终目标应为最后一次合法值 group/G1，实得 ' + JSON.stringify(final));
+  }
+  if (fails.length) { console.error('11. setLastTarget 校验失败:\n  ' + fails.join('\n  ')); process.exit(1); }
+  console.log('11. setLastTarget 校验 OK（' + pass + '/' + cases.length + '）');
+}
+
+// 12. 结构守卫：lastTarget 落盘只能走 onTargetChange，不得写在 onMessage 里
+// 这是第 10 项那个 bug 的形态守卫 —— 一旦有人把落盘挪回 onMessage（那里拿不到旧值），此处失败。
+{
+  const src = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  // 用带冒号的属性写法判断，避免注释里提到 onTargetChange 就误判为"已接线"
+  if (src.indexOf('onTargetChange:') < 0) {
+    console.error('12. index.mjs 缺少 onTargetChange 回调 —— 推送目标持久化没有接线');
+    process.exit(1);
+  }
+  // 提取 QQ 通道的 onMessage 回调体。
+  // 注意：文件里 onMessage 不止一处（Telegram 通道也有），必须先锚定 createQQBotChannel，
+  // 否则会取到别的通道的回调体 —— 守卫会永远"通过"（自己踩过一次）。
+  const chStart = src.indexOf('createQQBotChannel(');
+  if (chStart < 0) { console.error('12. 找不到 createQQBotChannel 调用'); process.exit(1); }
+  const start = src.indexOf('onMessage:', chStart);
+  if (start < 0) { console.error('12. qqbot 通道缺少 onMessage'); process.exit(1); }
+  let depth = 0, began = false, end = start;
+  for (let i = start; i < src.length; i++) {
+    const c = src[i];
+    if (c === '{') { depth++; began = true; }
+    else if (c === '}') { depth--; if (began && depth === 0) { end = i; break; } }
+  }
+  const body = src.slice(start, end + 1);
+  // 去掉注释再判断 —— 否则解释性注释里提到 getLastTarget 就会误报
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  if (code.indexOf('qqbotSaveConfig') >= 0) {
+    console.error('12. onMessage 里出现 qqbotSaveConfig —— 那里拿不到覆盖前的旧值，去重必然失效；请改用 onTargetChange');
+    process.exit(1);
+  }
+  if (code.indexOf('getLastTarget') >= 0) {
+    console.error('12. onMessage 里出现 getLastTarget —— 通道此时已写入新值，比较恒等，会导致目标永不落盘');
+    process.exit(1);
+  }
+  console.log('12. 落盘路径守卫 OK（仅在 onTargetChange 内落盘）');
 }
 
 proxy.close();
