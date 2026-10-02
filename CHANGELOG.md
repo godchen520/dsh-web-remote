@@ -4,10 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [3.3.0] - 2026-10-02
 
+### Fixed — 官方桌面版里「远程」按钮完全不显示
+
+**问题**：只注册了 `webServer.tapIndex`（旧 API，字符串替换 index.html）。
+`dsh-host-webserver` 的注释写得很清楚：结构化注入行同时喂给**两个渲染器** ——
+
+> *"one table feeds two renderers: the served form renders rows into the index.html
+> text, and a **static worker deployment** ships the same rows over its boot
+> payload for a page-side interpreter. Anything not expressible as a row stays on
+> `tapIndex`, which runs after row rendering."*
+
+**DSH 官方桌面版走的是「静态部署」那条路**（窗口地址 `dsh-app://app/`），
+只消费**结构化注入行**，**不跑 `tapIndex`** —— 所以脚本根本没进页面：
+
+```
+浏览器 devtools: location.href === 'dsh-app://app/'
+                 document.getElementById('webrm-native') === null
+```
+
+表现：`dsh web` 在浏览器里一切正常，桌面版里按钮完全不出现。
+
+**修复**：改为**同时**使用两条通道（照抄官方 `dsh-client-shortcuts` 写法）——
+
+```js
+ctx.on('webserver/index-inject', (table) => {
+  table.push({ kind: 'script', placement: 'body', text: INJECT_SCRIPT });
+});
+```
+
+- **结构化注入行**：served 形态 + 静态部署形态（桌面版）都覆盖，主通道
+- **`tapIndex`**：保留为老版本 DSH 的兜底
+- `INJECT_SCRIPT` 开头新增 `window.__webrmLoaded` 一次性守卫：两条通道同时生效也不会重复初始化
+  （否则会多出定时器与 MutationObserver）
+
 ### Added — 目标端口自动探测（支持 DSH 官方桌面版）
 
 **问题**：插件把 `targetPort` 默认写死为 `3080`（当时 `dsh web` 固定用这个端口）。
-但 **DSH 官方桌面版由宿主动态分配端口**（`dsh-host-webserver` 的注释明确写着
+但 **DSH 官方桌面版由宿主动态分配端口**（`dsh-host-webserver` 注释明确写着
 "the OS-assigned value when `config.port` is 0"），实测为 `19387`。
 
 写死导致的连锁故障：
@@ -16,21 +49,26 @@ All notable changes to this project will be documented in this file.
 |---|---|
 | 隧道 **502 Bad Gateway / Host Error** | cloudflared → 插件代理(3081) → 转发到 **3080**（已无服务） |
 | DSH token 读取失败 | `connection.authenticatedUrl('http://127.0.0.1:' + targetPort)` 也用了错的端口 |
-| 微信/飞书/QQ 通道正常 | 它们直连平台，不经过该代理，所以掩盖了问题 |
+| 微信/飞书/QQ 通道正常 | 它们直连平台，不经过该代理，掩盖了问题 |
 
 **修复**：目标端口按优先级探测 ——
 
 1. 显式配置 `targetPort`（有则最优先，保持可覆盖）
-2. 环境变量 `DSH_WEB_URL` 里解析端口（桌面版会带真实端口）
+2. 环境变量 `DSH_WEB_URL` 里解析端口
 3. 环境变量 `DSH_PORT`
 4. 兜底 `3080`
 
+> 实测：桌面版的插件进程里**看不到** `DSH_WEB_URL`（那是 harness 注入给 agent shell 的），
+> 因此桌面版需要在 profile 的 `cordis.patch.yml` 里显式指定：
+> ```yaml
+> - id: web-remote
+>   name: dsh-web-remote
+>   config:
+>     targetPort: 19387
+> ```
+
 新增 `/remote/info` 字段 `targetPort` 与 `portSource`（`config` / `env` / `default`），
-便于以后判断端口是从哪来的。
-
-### Changed
-
-- 端口不再是隐含的常量，改为可观测：出问题时 `GET /remote/info` 即可看到实际值。
+便于以后判断端口来源。
 
 ## [3.2.2] - 2026-10-02
 
