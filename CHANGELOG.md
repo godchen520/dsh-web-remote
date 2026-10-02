@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
   含 QQ 侧真实报错格式（如 `10004 机器人不存在`）
 - **启动期瞬时错误不判死**：只有鉴权类与缺 SDK 才快速失败，网络抖动继续等待就绪
 - 事件回调全部包 `try/catch`，异常不会穿透进 SDK；`stop()` 幂等
+- **推送目标持久化**：`lastTarget` 落地到 `store`，重启 DSH 后**无需再给机器人发消息**也能主动推送
+  （与微信/飞书/Telegram 的 chatId 持久化行为对齐；非法 scope/targetId 会被 `setLastTarget` 拒绝）
 
 ### Changed
 
