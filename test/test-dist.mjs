@@ -278,6 +278,30 @@ qq.close();
   console.log('12. 落盘路径守卫 OK（仅在 onTargetChange 内落盘）');
 }
 
+// 13. 反引号守卫：panel.mjs 整体是**模板字符串**（INJECT_SCRIPT = `...`）
+// 注释或字符串里一旦出现反引号，就会提前截断模板字符串 →
+// 模块本身解析失败，或注入脚本语法错误（浏览器端整个面板脚本不执行）。
+// 这个坑踩过两次（一次是注释里写反引号，一次是把 \n 写成真换行），
+// 所以用一条明确的守卫代替"靠人记得"。
+{
+  const src = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  const ticks = (src.match(/`/g) || []).length;
+  if (ticks !== 2) {
+    const bad = [];
+    src.split('\n').forEach((line, i) => { if (line.includes('`')) bad.push(`L${i + 1}: ${line.trim().slice(0, 90)}`); });
+    console.error(`13. panel.mjs 反引号数量异常：${ticks} 个（应为 2 个，即模板字符串首尾定界符）`);
+    console.error('    多出来的反引号会截断 INJECT_SCRIPT 模板字符串。出现位置：');
+    bad.forEach((l) => console.error('      ' + l));
+    process.exit(1);
+  }
+  // 顺带确认导出确实是个能解析的脚本（真正的语法校验在 8 里做）
+  if (src.indexOf('export const INJECT_SCRIPT = `') < 0) {
+    console.error('13. panel.mjs 里找不到 INJECT_SCRIPT 的模板字符串声明');
+    process.exit(1);
+  }
+  console.log('13. 反引号守卫 OK（2 个定界符，模板字符串未被截断）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
