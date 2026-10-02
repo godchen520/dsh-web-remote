@@ -4,9 +4,9 @@
   <img src="docs/banner.svg" alt="dsh-web-remote" width="100%">
 </p>
 
-[![npm version](https://img.shields.io/badge/npm-dsh--web--remote-blue)](https://github.com/godchen520/dsh-web-remote)
+[![Version](https://img.shields.io/github/v/tag/godchen520/dsh-web-remote?label=version&sort=semver)](https://github.com/godchen520/dsh-web-remote/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![DSH Compatible](https://img.shields.io/badge/DSH-1.x-brightgreen)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH Compatible](https://img.shields.io/badge/DSH-0.1.2--0.2.x-brightgreen)](https://github.com/deepseek-ai/deepseek-harness)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../../pulls)
 
 <p align="right">
