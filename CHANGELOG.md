@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [5.1.0] - 2026-10-04
+## [5.2.0] - 2026-10-03
 
 ### Added — 钉钉机器人通道（第五个通道）
 
@@ -80,7 +80,7 @@ All notable changes to this project will be documented in this file.
   不再像以前那样只看到别的通道、完全不知道钉钉为什么没推
 - 钉钉通道的主动推送与被动回复**分开记账**（`pushCount`/`lastPushAt` vs `lastSentAt`），
   避免"回复通了"被误当成"监听通知也通了"
-- 面板标题「远程访问」右侧新增**版本徽标**（`v5.1.0`，来自 `/remote/info` 的 `version`）：
+- 面板标题「远程访问」右侧新增**版本徽标**（`v5.2.0`，来自 `/remote/info` 的 `version`）：
   字号为标题的一半（`.5em`）、内边距 1px（约一个笔画宽）、圆角 `2px 2px 2px 0`
   （上两角与右下圆、左下直角）、实底 + 镂空字；
   底色用 `label-primary`、字色用面板底色 token → 浅色主题"黑底白字"、深色主题自动反色成"白底黑字"
