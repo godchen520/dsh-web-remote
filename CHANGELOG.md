@@ -84,6 +84,10 @@ All notable changes to this project will be documented in this file.
   字号为标题的一半（`.5em`）、内边距 1px（约一个笔画宽）、圆角 `2px 2px 2px 0`
   （上两角与右下圆、左下直角）、实底 + 镂空字；
   底色用 `label-primary`、字色用面板底色 token → 浅色主题"黑底白字"、深色主题自动反色成"白底黑字"
+  - 版本号**自动跟随 `package.json`**：`index.mjs` 运行时读同包上一级的 `package.json`，
+    读不到才退回兜底常量（`PLUGIN_VERSION_FALLBACK`）—— 发版只需改 `package.json` 一处。
+    守卫 #21 用 `import` 取运行时的真实解析值来断言（不是去源码里抠字面量）；
+    实测把 `package.json` 改成 `9.9.9-test`，解析值立刻跟着变、测试仍全绿
 - 标题下划线：从 `border-bottom` 改为容器 `::after`，粗细 **2px**（≈标题笔画粗细）、
   右端收 2px 圆角与徽标右下圆角对齐；
   **线画在容器的 padding 区**（容器 `padding-bottom:2px` + 线的 `bottom:0`），紧贴字形底、0px 重叠

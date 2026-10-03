@@ -587,15 +587,33 @@ await new Promise((res, rej) => {
   console.log('20. 监听结果记账 OK（' + writes + ' 处写入全部追加，最近 5 轮有归档）');
 }
 
-// 21. 版本号守卫：面板标题上的徽标必须与 package.json 的 version 一致
-// 版本号硬编码在 index.mjs 里（避免运行时读 package.json），所以必须有守卫防漂移。
+// 21. 版本号守卫：面板徽标显示的版本必须"自动跟随" package.json
+// index.mjs 运行时读同包上一级的 package.json（读不到才退回兜底常量），
+// 所以这里直接 import 那个解析结果来验，而不是去源码里正则抠字面量。
 {
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const m = idx.match(/const\s+PLUGIN_VERSION\s*=\s*'([^']+)'/);
-  if (!m) { console.error('21. index.mjs 里找不到 PLUGIN_VERSION 常量'); process.exit(1); }
-  if (m[1] !== pkg.version) {
-    console.error('21. PLUGIN_VERSION（' + m[1] + '）与 package.json 的 version（' + pkg.version + '）不一致');
+  if (idx.indexOf("new URL('../package.json', import.meta.url)") < 0) {
+    console.error('21. index.mjs 没有运行时读 package.json —— 版本号不会自动跟随');
+    process.exit(1);
+  }
+  const fb = idx.match(/const\s+PLUGIN_VERSION_FALLBACK\s*=\s*'([^']+)'/);
+  if (!fb) { console.error('21. index.mjs 里找不到 PLUGIN_VERSION_FALLBACK 兜底常量'); process.exit(1); }
+  // 兜底常量只要求"看起来是个版本号"：它只在 package.json 读不到时才生效，
+  // 不该因为发版时忘记同步它就让测试失败（那等于又变成"要改两处"）。
+  // 真正重要的是下面那条运行时断言 —— 解析结果必须等于 package.json。
+  if (!/^\d+\.\d+\.\d+/.test(fb[1])) {
+    console.error('21. 兜底常量不是合法的版本号形态：' + fb[1]);
+    process.exit(1);
+  }
+  // 真·运行时验证：import 插件的实际解析结果
+  const mod = await import('../lib/index.mjs');
+  if (typeof mod.PLUGIN_VERSION !== 'string' || !mod.PLUGIN_VERSION) {
+    console.error('21. index.mjs 没有导出解析后的 PLUGIN_VERSION');
+    process.exit(1);
+  }
+  if (mod.PLUGIN_VERSION !== pkg.version) {
+    console.error('21. 运行时解析出的版本（' + mod.PLUGIN_VERSION + '）与 package.json（' + pkg.version + '）不一致 —— 自动跟随失效');
     process.exit(1);
   }
   if (idx.indexOf('version: PLUGIN_VERSION') < 0) {
