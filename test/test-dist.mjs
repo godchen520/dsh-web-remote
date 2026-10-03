@@ -607,9 +607,23 @@ await new Promise((res, rej) => {
     console.error('21. panel.mjs 没有读取 /remote/info 的 version 去填徽标');
     process.exit(1);
   }
-  // 徽标样式：字号必须是标题的一半（.5em），且深浅主题都要能反色
+  // 徽标样式：字号必须是标题的一半（.5em）、内边距只留一个笔画宽（1px）、
+  // 底边与标题文字底边对齐（flex-end），且深浅主题都要能反色
+  if (pan.indexOf('#webrm-head-left{display:flex;align-items:flex-end;gap:4px') < 0) {
+    console.error('21. 徽标容器样式不对：应为 flex-end 贴底 + 4px 间距');
+    process.exit(1);
+  }
   if (pan.indexOf('#webrm-ver{display:inline-flex;align-items:center;font-size:.5em') < 0) {
     console.error('21. 徽标样式不对：字号应为 .5em（标题的一半）');
+    process.exit(1);
+  }
+  if (pan.indexOf('letter-spacing:.02em;padding:1px;border-radius:4px') < 0) {
+    console.error('21. 徽标内边距应为 1px（一个笔画宽）—— 太厚会像贴住里面的字');
+    process.exit(1);
+  }
+  if (pan.indexOf('transform:translateY(-1px)') >= 0 && pan.indexOf('#webrm-ver') >= 0) {
+    // 贴底对齐后不需要再手动位移
+    console.error('21. 徽标还带着 translateY 位移 —— 贴底对齐后应移除');
     process.exit(1);
   }
   if (pan.indexOf('body[data-ds-dark-theme] #webrm-ver') < 0) {
