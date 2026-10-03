@@ -587,6 +587,38 @@ await new Promise((res, rej) => {
   console.log('20. 监听结果记账 OK（' + writes + ' 处写入全部追加，最近 5 轮有归档）');
 }
 
+// 21. 版本号守卫：面板标题上的徽标必须与 package.json 的 version 一致
+// 版本号硬编码在 index.mjs 里（避免运行时读 package.json），所以必须有守卫防漂移。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const m = idx.match(/const\s+PLUGIN_VERSION\s*=\s*'([^']+)'/);
+  if (!m) { console.error('21. index.mjs 里找不到 PLUGIN_VERSION 常量'); process.exit(1); }
+  if (m[1] !== pkg.version) {
+    console.error('21. PLUGIN_VERSION（' + m[1] + '）与 package.json 的 version（' + pkg.version + '）不一致');
+    process.exit(1);
+  }
+  if (idx.indexOf('version: PLUGIN_VERSION') < 0) {
+    console.error('21. snapshot() 没有把 version 暴露给面板（面板徽标会一直是空的）');
+    process.exit(1);
+  }
+  const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  if (pan.indexOf("getElementById('webrm-ver')") < 0 || pan.indexOf('info.version') < 0) {
+    console.error('21. panel.mjs 没有读取 /remote/info 的 version 去填徽标');
+    process.exit(1);
+  }
+  // 徽标样式：字号必须是标题的一半（.5em），且深浅主题都要能反色
+  if (pan.indexOf('#webrm-ver{display:inline-flex;align-items:center;font-size:.5em') < 0) {
+    console.error('21. 徽标样式不对：字号应为 .5em（标题的一半）');
+    process.exit(1);
+  }
+  if (pan.indexOf('body[data-ds-dark-theme] #webrm-ver') < 0) {
+    console.error('21. 徽标缺少深色主题反色规则');
+    process.exit(1);
+  }
+  console.log('21. 版本徽标 OK（v' + pkg.version + '，与 package.json 一致，深浅主题可反色）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
