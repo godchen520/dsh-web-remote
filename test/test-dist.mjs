@@ -610,14 +610,16 @@ await new Promise((res, rej) => {
   // 徽标/下划线样式（用户逐轮定下来的，别再"优化"回去）：
   //  · 字号 .5em（标题的一半）、内边距 1px（一个笔画宽）
   //  · 徽标圆角 2px 2px 2px 0：上两角与右下圆、左下直角（左下要与下划线接上）
-  //  · 下划线走容器 ::after（border-bottom 贴不到字形），bottom:2px + 2px 粗（≈笔画粗细）
-  //  · 徽标 margin-bottom:2px，底边与下划线齐平
-  if (pan.indexOf('#webrm-head-left{display:flex;align-items:flex-end;gap:4px;min-width:0;position:relative}') < 0) {
-    console.error('21. 徽标容器样式不对：应为 flex-end + 4px 间距 + position:relative（给 ::after 定位）');
+  //  · 下划线走容器 ::after（border-bottom 贴不到字形）
+  //  · ⚠️ 线必须画在容器的 padding 区：容器 padding-bottom:2px + 线的 bottom:0。
+  //    19px 中文字形墨迹几乎占满 22px 行框，线若画在容器内部（bottom:2px）会压进字形
+  //    —— 实测线盖住字底 3 行、字的底边还会从线下面露出来。这条几何关系必须守住。
+  if (pan.indexOf('#webrm-head-left{display:flex;align-items:flex-end;gap:4px;min-width:0;position:relative;padding-bottom:2px}') < 0) {
+    console.error('21. 徽标容器样式不对：应为 position:relative + padding-bottom:2px（把下划线放到容器外）');
     process.exit(1);
   }
-  if (pan.indexOf('#webrm-head-left::after{content:"";position:absolute;left:0;right:0;bottom:2px;height:2px') < 0) {
-    console.error('21. 下划线不对：应为容器 ::after、bottom:2px（贴字）、height:2px（≈笔画粗细）');
+  if (pan.indexOf('#webrm-head-left::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px') < 0) {
+    console.error('21. 下划线不对：应为 bottom:0（落在 padding 区；bottom:2px 会压进字形）+ height:2px');
     process.exit(1);
   }
   if (pan.indexOf('background:var(--dsw-alias-label-primary,#1d1d1f);border-bottom-right-radius:2px}') < 0) {
@@ -628,8 +630,12 @@ await new Promise((res, rej) => {
     console.error('21. 徽标样式不对：字号应为 .5em（标题的一半）');
     process.exit(1);
   }
-  if (pan.indexOf('letter-spacing:.02em;padding:1px;border-radius:2px 2px 2px 0;margin-bottom:2px') < 0) {
-    console.error('21. 徽标应为 padding:1px + 圆角 2px 2px 2px 0 + margin-bottom:2px（与下划线齐平）');
+  if (pan.indexOf('letter-spacing:.02em;padding:1px;border-radius:2px 2px 2px 0;') < 0) {
+    console.error('21. 徽标应为 padding:1px + 圆角 2px 2px 2px 0');
+    process.exit(1);
+  }
+  if (pan.indexOf('border-radius:2px 2px 2px 0;margin-bottom:') >= 0) {
+    console.error('21. 徽标不该再有 margin-bottom —— 线移到 padding 区后，徽标底边天然就坐在线上');
     process.exit(1);
   }
   if (pan.indexOf('transform:translateY(-1px)') >= 0 && pan.indexOf('#webrm-ver') >= 0) {
