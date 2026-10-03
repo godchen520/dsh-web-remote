@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.1.0] - 2026-10-04
+
+### Added — 钉钉机器人通道（第五个通道）
+
+企业内部应用 + 机器人 **Stream 模式**（长连接），不需要公网入口；与其它通道功能完全对齐。
+
+| 位置 | 内容 |
+|---|---|
+| `lib/dingtalk.mjs` | **新增** `createDingTalkChannel`：就绪轮询、健康巡检、凭证预检、被动回复 + OpenAPI 主动推送、`lastTarget` 持久化；导出 `stripDingTalkMention` / `splitForDingTalk` / `classifyDingTalkError` |
+| `lib/index.mjs` | 通道接线：状态/配置/重连/断开 4 条路由、13 条命令（含 8 项共享命令）、监听推送、启动自动连接与目标恢复、销毁清理、健康快照 |
+| `lib/panel.mjs` | 钉钉并入统一的「重新绑定 / 断开」入口（不再有例外），新增凭证表单（AppKey/AppSecret + 验证并连接）、断开态一键重连、健康提示、开放平台入口 |
+| 测试 | 新增 6 项守卫（#14–#19）：通道模块纯函数与 API 形状、**五通道命令对齐矩阵**、**监听守卫完整性**、钉钉接线、**SDK 用法守卫**、同步脚本文件清单 |
+| 文档 | README / README_EN 新增「钉钉机器人」章节（接入步骤 + 排错），功能表与健康监测表补上钉钉 |
+| 依赖 | `dingtalk-stream ^2.1.5`（此前已在 dependencies 中，本次真正用起来） |
+
+**实现要点（都来自 SDK 源码 + 官方文档核对，改这块代码前务必先读 `lib/dingtalk.mjs` 顶部注释）：**
+
+1. **机器人消息是 `CALLBACK` 类型**（topic `/v1.0/im/bot/messages/get`），必须 `registerCallbackListener(TOPIC_ROBOT, cb)`
+   —— 只调 `registerAllEventListener` 会**收不到消息**；
+2. **`CALLBACK` 不会自动 ACK**（SDK 的 `onCallback` 丢弃返回值），必须自己 `socketCallBackResponse(messageId, {response:null})`，
+   且回调要**同步返回**、把耗时处理丢到 ACK 之后；
+3. SDK 的 `connect()` **内部吞掉所有异常、永不 reject** → 不能靠它判断成功：先用 `access_token` 接口做凭证预检，
+   再轮询 `client.connected/registered` 做就绪判定（超时归类为「应用未发布 / 未开 Stream 模式」）；
+4. `keepAlive` 默认 **false**（半死连接发现不了）→ 显式打开；SDK 重连间隔硬编码 1 秒且无退避 → 重连日志限流；
+5. 被动回复用消息自带的 `sessionWebhook`（**1.5 小时**有效，绝对毫秒时间戳），返回体 `{errcode,errmsg}` ——
+   **HTTP 200 不代表成功**；过期自动回落 OpenAPI 主动推送；
+6. `access_token` **自己缓存 7200 秒**（SDK 自带的 `getAccessToken()` 无缓存且走旧版 GET 接口，每次回调都调会被限流）；
+7. 群聊 @ 前缀：官方样例显示**服务端已剥离**，只留前导空格 → 只 `trim()`，另加一层很保守的兜底
+   （仅当残留 `@xxx ` 且后面是命令时才剥，避免吃掉「@张三 帮我看下」这类正文）；
+8. 非文本消息（`picture/audio/video/file/richText`）**没有 `text` 字段**，直接取会抛 → 统一兜底并回一句提示；
+9. 主动推送单聊 `userIds` 单次 ≤20、群聊 `msgParam` ≤15000 字节 → 文本按 4000 字自动分片；
+10. 一个应用最多 50 条 Stream 连接、服务端随机挑一条推送 → 插件保持幂等，**两个 profile 不要同时跑**。
+
+**接入前置条件：** 需要**企业/组织**（个人版钉钉不支持应用机器人），且要**发布应用**并申请
+「企业内机器人发送消息权限」（仅用被动回复可不申请）。
+
+### Fixed — 监听开关的守卫漏通道（存量 bug）
+
+关闭某个通道的监听时，各通道各写各的判断，导致 **关掉飞书会把 Telegram / QQ官方 的监听一起停掉**：
+
+| 位置 | 原判断 | 问题 |
+|---|---|---|
+| 关 Telegram | `!weixin && !feishu` | 漏 qqbot |
+| 关飞书 | `!weixin` | 漏 telegram / qqbot |
+| 关微信 | `!feishu` | 漏 telegram / qqbot |
+| 监听循环自检 | `!weixin && !feishu` | 漏 telegram / qqbot |
+
+现在统一为 `anyMonitorOn()`（5 个通道一处判定），并加了**形态守卫**：一旦再出现
+`!xxxMonitorMode && !yyyMonitorMode` 这类字面量判断，测试直接失败。
+另外微信 `/状态` 现在会列出全部 5 个通道的监听开关。
+
+### Changed
+
+- 面板底部提示补上 `/选强度`，并说明钉钉走 Stream 模式、群聊需要 @机器人
+- 钉钉通道卡片文案：`钉钉机器人 Webhook 接入` → `钉钉机器人 Stream 接入`
+- `tools/sync-dsh-web-remote.ps1` 文件清单加入 `lib\dingtalk.mjs`（漏一个文件部署副本就是旧的）；
+  同时给它补了 **UTF-8 BOM** —— 之前无 BOM，Windows PowerShell 5.1 会按 GBK 读脚本，
+  中文被解析坏导致脚本**根本跑不起来**
+- **监听推送可诊断**：`/remote/diag` 现在列出 5 个通道的监听开关，并附上钉钉通道自述
+  （`pushCount` / `lastPushAt` / `lastPushTarget` / `lastPushError`）；
+  监听通知跳过钉钉时写明原因（`通道实例不存在` / `通道已断开` / `还没有会话目标`），
+  不再像以前那样只看到别的通道、完全不知道钉钉为什么没推
+- 钉钉通道的主动推送与被动回复**分开记账**（`pushCount`/`lastPushAt` vs `lastSentAt`），
+  避免"回复通了"被误当成"监听通知也通了"
+
 ## [5.0.0] - 2026-10-03
 
 ### Removed — QQ（NapCat / OneBot 11）通道整体移除（**破坏性变更**）

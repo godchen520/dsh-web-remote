@@ -31,8 +31,9 @@
 | 💬 **Feishu Bot** | WebSocket long connection; command control, monitor notifications |
 | ✈️ **Telegram Bot** | Long polling; HTTP proxy support, command control, monitor push |
 | 🐧 **QQ Official Bot** | QQ Open Platform official integration; WebSocket long connection — **no extra QQ account, no public endpoint/ICP filing** |
+| 🔔 **DingTalk Bot** | Internal enterprise app + Stream-mode long connection — **no public endpoint**; webhook replies + OpenAPI proactive push |
 | 👁️ **Session Monitor** | `/monitor` — get notified on your bound channel when the agent finishes |
-| 🩺 **Channel Health** | Per-channel monitoring (WeChat/Feishu/Telegram/QQ); auto-stops after 3 consecutive failures, red-dot shortcut + one-click reconnect |
+| 🩺 **Channel Health** | Per-channel monitoring (WeChat/Feishu/Telegram/QQ/DingTalk); auto-stops after 3 consecutive failures, red-dot shortcut + one-click reconnect |
 
 ## 🚀 Quick Start
 
@@ -235,9 +236,43 @@ Official QQ bot via the **QQ Open Platform**:
 (NapCat) channel; it was removed in 5.0.0 — the official bot is compliant, stable, needs no extra
 QQ account and no NapCat middleware.
 
+## 🔔 DingTalk Bot
+
+Integrated through a DingTalk Open Platform **internal enterprise app + robot**, using **Stream mode**
+(a long connection) — so, like Feishu/QQ Official, it needs **no public IP, domain, certificate or tunnel**.
+
+**Commands:** identical to every other channel —
+`/help` `/link` `/start` `/stop` `/monitor` `/status` `/sessions` `/select N` `/current` `/history` `/model` `/switch-model` `/effort`,
+plus **plain text** (no `/` prefix) which is relayed into the selected session.
+
+**Key facts:**
+
+| Item | Notes |
+|---|---|
+| Account requirement | An **organization** is required (personal DingTalk does not support app robots); a free team where you are admin works |
+| Public endpoint | **Not required** — Stream mode long connection |
+| Passive reply | Uses the message's `sessionWebhook` (**no extra permission**); valid **1.5 hours**, then falls back to the OpenAPI |
+| Proactive push | OpenAPI (`oToMessages/batchSend` for C2C, `groupMessages/send` for groups); needs the **"企业内机器人发送消息权限"** permission |
+| Monitor notifications | Sent via the OpenAPI, **not limited by the 1.5-hour window**; the last conversation target is restored after a restart |
+| Group chats | The robot must be **@mentioned** to receive a message; proactive push **cannot @ people** |
+| Message length | Auto-split at 4000 chars (group API caps `msgParam` at 15000 bytes) |
+
+**Setup:**
+
+1. Sign in to the [DingTalk developer console](https://open-dev.dingtalk.com) as an **org admin**
+   (or ask an admin to grant you developer permission)
+2. App development → **Create internal enterprise app** → note the **Client ID / Client Secret**
+3. App capabilities → add a **Robot** → set **message receive mode to "Stream mode"** → save
+4. **Publish the app**: version management → new version (**tick "Robot"**) → publish
+   > Until it is published the robot is not visible in chats and `senderStaffId` is not returned
+5. Request the permission: development config → permissions → search **"企业内机器人发送消息权限"**
+   > Passive replies work without it; `/monitor` notifications require it
+6. For group chats: group settings → group management → robots → add the robot
+7. DSH panel → Bot tab → **DingTalk** → enter Client ID / Client Secret → "Verify & connect"
+
 ## 🩺 Channel Health Monitoring
 
-WeChat / Feishu / Telegram / QQ Official are monitored independently:
+WeChat / Feishu / Telegram / QQ Official / DingTalk are monitored independently:
 
 - **3 consecutive** failures → that channel stops automatically and raises an alert
 - The remote icon shows a **red dot** (lights up when any channel is down)
