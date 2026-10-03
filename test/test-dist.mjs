@@ -668,6 +668,54 @@ await new Promise((res, rej) => {
   console.log('21. 版本徽标 OK（v' + pkg.version + '，与 package.json 一致，深浅主题可反色）');
 }
 
+// 22. P2P（Tailscale）接入守卫
+//  · isPrivateAddress 必须认 100.64.0.0/10（Tailscale/CGNAT），否则走 P2P 还要带 token
+//  · 100.64/10 之外的 100.x 不能被误判成私网
+//  · 面板要把 P2P 那条链接单独标注（用户才知道手机得开着 Tailscale）
+//  · ips 必须每次取状态时重算（Tailscale 网卡常在宿主启动之后才出现）
+{
+  const { isPrivateAddress } = await import('../lib/proxy.mjs');
+  const { isTailscaleRange } = await import('../lib/index.mjs');
+  const cases = [
+    ['100.103.130.41', true, 'Tailscale 实机地址'],
+    ['100.64.0.1', true, 'CGNAT 段起点'],
+    ['100.127.255.254', true, 'CGNAT 段终点'],
+    ['100.128.0.1', false, 'CGNAT 段之外'],
+    ['100.63.255.255', false, 'CGNAT 段之外（下方）'],
+    ['192.168.31.111', true, '普通局域网'],
+    ['10.1.2.3', true, '10 段'],
+    ['172.16.0.1', true, '172.16 段'],
+    ['172.32.0.1', false, '172.32 不属于私网'],
+    ['169.254.1.1', true, 'link-local'],
+    ['127.0.0.1', true, '本机（调用方会另行排除）'],
+    ['8.8.8.8', false, '公网'],
+    ['::ffff:100.103.130.41', true, 'IPv4-mapped 形式'],
+    ['', false, '空值'],
+  ];
+  const bad = [];
+  for (const [ip, want, desc] of cases) {
+    const got = isPrivateAddress(ip);
+    if (got !== want) bad.push(desc + ' ' + JSON.stringify(ip) + '：期望 ' + want + ' 实得 ' + got);
+  }
+  if (bad.length) { console.error('22. isPrivateAddress 真值表不符:\n  ' + bad.join('\n  ')); process.exit(1); }
+
+  const tsCases = [['100.103.130.41', true], ['100.64.0.1', true], ['100.127.255.255', true], ['100.128.0.1', false], ['192.168.31.111', false], ['', false]];
+  const tsBad = tsCases.filter(([ip, want]) => isTailscaleRange(ip) !== want);
+  if (tsBad.length) { console.error('22. isTailscaleRange 不符: ' + JSON.stringify(tsBad)); process.exit(1); }
+
+  const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  if (pan.indexOf('P2P/Tailscale HTTP ') < 0) {
+    console.error('22. panel.mjs 没有把 100.64/10 那条链接标成 P2P/Tailscale');
+    process.exit(1);
+  }
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  if (idx.indexOf('ips: currentIps()') < 0) {
+    console.error('22. snapshot() 没有用 currentIps() 重算地址 —— Tailscale 起来后不重启看不到链接');
+    process.exit(1);
+  }
+  console.log('22. P2P 接入 OK（免 token 段 + 面板标注 + 地址重算，' + cases.length + ' 例真值表）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
