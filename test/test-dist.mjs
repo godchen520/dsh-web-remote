@@ -551,6 +551,42 @@ await new Promise((res, rej) => {
   }
 }
 
+// 20. 监听结果记账守卫：每个通道写入 monitorLastSendResult 都必须"追加"，不能直接赋值
+// 起因：微信分支是直接赋值（覆盖），其余通道是追加 —— 于是"最后一条结果"里
+// 可能整段看不到钉钉/QQ 的记录，我据此误判过"钉钉没推"。通道结果只能追加。
+{
+  const src = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  // 注意按 /\r?\n/ 切：仓库里是 CRLF，而 `.` 不匹配 \r、`$` 又必须在串尾，
+  // 用 (.*)$ 会一行都匹配不到（守卫会假绿，我自己踩过一次）
+  const lines = src.split(/\r?\n/);
+  const bad = [];
+  let writes = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*let\s+monitorLastSendResult/.test(lines[i])) continue; // 声明行（可能带行尾注释）
+    const m = lines[i].match(/monitorLastSendResult\s*=\s*(.*)$/);
+    if (!m) continue;
+    const rhs = m[1].trim();
+    if (rhs.startsWith("''")) continue; // 轮次开始时的重置
+    writes++;
+    if (lines[i].indexOf("monitorLastSendResult ? monitorLastSendResult + ' | ' : ''") < 0) {
+      bad.push('L' + (i + 1) + ': ' + lines[i].trim().slice(0, 110));
+    }
+  }
+  if (bad.length) {
+    console.error('20. 以下写入直接覆盖了 monitorLastSendResult（必须追加，否则会抹掉别的通道的结果）：\n  ' + bad.join('\n  '));
+    process.exit(1);
+  }
+  if (writes < 6) {
+    console.error('20. 只找到 ' + writes + ' 处通道写入，预期 ≥6（5 通道 + 跳过分支）');
+    process.exit(1);
+  }
+  if (src.indexOf('monitorSendHistory.push(') < 0) {
+    console.error('20. 缺少 monitorSendHistory 归档 —— 间歇性"没推"的那一轮查不到');
+    process.exit(1);
+  }
+  console.log('20. 监听结果记账 OK（' + writes + ' 处写入全部追加，最近 5 轮有归档）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
