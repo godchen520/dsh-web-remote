@@ -607,18 +607,29 @@ await new Promise((res, rej) => {
     console.error('21. panel.mjs 没有读取 /remote/info 的 version 去填徽标');
     process.exit(1);
   }
-  // 徽标样式：字号必须是标题的一半（.5em）、内边距只留一个笔画宽（1px）、
-  // 底边与标题文字底边对齐（flex-end），且深浅主题都要能反色
-  if (pan.indexOf('#webrm-head-left{display:flex;align-items:flex-end;gap:4px;min-width:0;border-bottom:1px solid var(--dsw-alias-label-primary') < 0) {
-    console.error('21. 徽标容器样式不对：应为 flex-end 贴底 + 4px 间距 + 容器上的 1px 下划线（这样才连得到徽标底边）');
+  // 徽标/下划线样式（用户逐轮定下来的，别再"优化"回去）：
+  //  · 字号 .5em（标题的一半）、内边距 1px（一个笔画宽）
+  //  · 徽标圆角 2px 2px 2px 0：上两角与右下圆、左下直角（左下要与下划线接上）
+  //  · 下划线走容器 ::after（border-bottom 贴不到字形），bottom:2px + 2px 粗（≈笔画粗细）
+  //  · 徽标 margin-bottom:2px，底边与下划线齐平
+  if (pan.indexOf('#webrm-head-left{display:flex;align-items:flex-end;gap:4px;min-width:0;position:relative}') < 0) {
+    console.error('21. 徽标容器样式不对：应为 flex-end + 4px 间距 + position:relative（给 ::after 定位）');
+    process.exit(1);
+  }
+  if (pan.indexOf('#webrm-head-left::after{content:"";position:absolute;left:0;right:0;bottom:2px;height:2px') < 0) {
+    console.error('21. 下划线不对：应为容器 ::after、bottom:2px（贴字）、height:2px（≈笔画粗细）');
+    process.exit(1);
+  }
+  if (pan.indexOf('background:var(--dsw-alias-label-primary,#1d1d1f);border-bottom-right-radius:2px}') < 0) {
+    console.error('21. 下划线右端应带 2px 圆角（与徽标右下圆角对齐，否则交界处留小台阶）');
     process.exit(1);
   }
   if (pan.indexOf('#webrm-ver{display:inline-flex;align-items:center;font-size:.5em') < 0) {
     console.error('21. 徽标样式不对：字号应为 .5em（标题的一半）');
     process.exit(1);
   }
-  if (pan.indexOf('letter-spacing:.02em;padding:1px;border-radius:2px') < 0) {
-    console.error('21. 徽标内边距应为 1px（一个笔画宽）、圆角 2px（锐利）');
+  if (pan.indexOf('letter-spacing:.02em;padding:1px;border-radius:2px 2px 2px 0;margin-bottom:2px') < 0) {
+    console.error('21. 徽标应为 padding:1px + 圆角 2px 2px 2px 0 + margin-bottom:2px（与下划线齐平）');
     process.exit(1);
   }
   if (pan.indexOf('transform:translateY(-1px)') >= 0 && pan.indexOf('#webrm-ver') >= 0) {
