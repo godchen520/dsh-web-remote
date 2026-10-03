@@ -2,6 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.1.0] - 2026-10-02
+
+本版主题：**各通道指令集对齐** —— 此前只有微信通道做全（13 项），
+Telegram / QQ官方 / 飞书 只有 6~7 项，且**只有微信能把普通消息转发进会话**。
+
+### Added — 跨通道共享指令（把微信的指令集补到其他端）
+
+| 通道 | 改前 | 改后 |
+|---|---|---|
+| 微信 | 13 项（基准） | 13 项（不变） |
+| Telegram | 7 项 | **13 项** |
+| QQ 官方 | 7 项 | **13 项** |
+| 飞书 | 6 项（连 `/状态` 都没有） | **13 项** |
+
+新增到三个通道的指令：
+
+- `/会话列表` —— 列出可见会话（过滤归档 / 子代理 / 孤儿会话）
+- `/选择 N` —— 选中第 N 个会话
+- `/当前会话` —— 查看选中的会话
+- `/历史内容` —— 查看选中会话最近一次输出
+- `/切换模型` + `/选强度 N` —— 多步切换模型与思考强度
+- **非命令文本 → 转发进选中会话**（此前其他端只能被动收通知，无法反向操作）
+- 飞书额外补上 `/状态`
+
+### Changed — 抽出公共实现，避免四个通道各写一遍
+
+新增（`lib/index.mjs`）：
+
+```
+visibleSessionRecords()  会话列表过滤（归档/子代理/孤儿）
+cmdSessionList()         会话列表文本
+cmdSelectSession(st, n)  选中会话
+cmdCurrentSession(st)    当前会话
+cmdHistory(st)           最近输出
+cmdCurrentModel(st)      当前模型（优先选中会话的，回落全局默认）
+cmdSwitchModel(st, arg)  多步切换模型
+cmdPickEffort(st, arg)   选择思考强度
+cmdRelayToSession(st, t) 非命令文本转发进会话
+channelHelp(name)        各通道统一帮助文本
+```
+
+每个通道传入自己的状态对象 `{ selected, pick }`（`telegramCmdState` / `qqbotCmdState` / `feishuCmdState`）。
+
+- `switchModel(provider, model, effort, sessionId)` 增加可选第 4 参；
+  **不传时仍回落到微信的选中会话**，旧调用点行为不变（向后兼容）。
+- 微信通道保留其原有内联实现（它是基准，不动以免回归）；两边逻辑一致，
+  将来若要收敛，把微信那几段换成调用本组函数即可。
+
 ## [4.0.0] - 2026-10-02
 
 本版主题是 **支持 DSH 官方桌面版**，并重做了面板在两端（浏览器 / 桌面版）的按钮布局与局域网链接形态。
