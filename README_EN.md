@@ -96,7 +96,6 @@ All optional. Override in `cordis.patch.yml`:
 | `targetPort` | auto-detected | DSH's own port. **Explicit config wins**; otherwise `DSH_WEB_URL` → `DSH_PORT` → fallback `3080` |
 | `httpPortStart` | `3081` | LAN HTTP start port (auto-skips occupied) |
 | `httpsPortStart` | `3082` | LAN HTTPS start port |
-| `qqPortStart` | `3001` | QQ OneBot bridge start port |
 | `cloudflaredPath` | `''` | Specify cloudflared path; empty = auto-detect / auto-download |
 | `pfxPath` | `''` | PFX certificate; empty = auto-generate self-signed |
 | `pfxPass` | `''` | PFX password |
@@ -192,7 +191,7 @@ Control DSH directly from Telegram:
 
 ## 🐧 QQ Official Bot
 
-Official QQ bot via the **QQ Open Platform** (not NapCat protocol emulation):
+Official QQ bot via the **QQ Open Platform**:
 
 - `/link` — Get public link
 - `/stop` — Stop remote service
@@ -232,7 +231,9 @@ Official QQ bot via the **QQ Open Platform** (not NapCat protocol emulation):
 
 **Group chat:** the group owner simply adds the bot to the group. Receiving *all* group messages requires the owner to enable it in the bot settings.
 
-**Coexistence:** independent from the existing **QQ (NapCat)** channel — both can run at once. NapCat is more feature-complete but carries ban risk; the official bot is compliant and stable.
+**Note:** this is the plugin's **only** QQ integration. An earlier version shipped a OneBot 11
+(NapCat) channel; it was removed in 5.0.0 — the official bot is compliant, stable, needs no extra
+QQ account and no NapCat middleware.
 
 ## 🩺 Channel Health Monitoring
 

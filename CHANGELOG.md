@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.0.0] - 2026-10-03
+
+### Removed — QQ（NapCat / OneBot 11）通道整体移除（**破坏性变更**）
+
+按使用者要求移除该通道。QQ 接入现在**只剩「QQ 官方」一条路**。
+
+删除内容：
+
+| 位置 | 内容 |
+|---|---|
+| `lib/qq.mjs` | OneBot 11 反向 WebSocket 桥（整个文件删除） |
+| `lib/index.mjs` | `createQQServer` 导入、`qqServer`/`qqPort` 变量、`start()` 里的启动块、`stop()` 与关闭钩子里的清理、快照字段 `qq`、配置项 `qqPortStart` |
+| `lib/panel.mjs` | 机器人页的 `QQ` 通道条目、`botChannelStatus` 的 `qq` 分支、通道名映射、面板提示文案 |
+| 测试 | 原「7. QQ 桥」用例改为**移除守卫**：断言 `lib/qq.mjs` 不存在、且 index/panel 里不再残留 `createQQServer` / `qqServer` / `qqPortStart` / `NapCat` / `OneBot` |
+| 文档 | README / README_EN 删除 `qqPortStart` 配置行与「两通道共存」说明 |
+| 工具 | `tools/sync-dsh-web-remote.ps1` 的文件清单移除 `lib\qq.mjs` |
+
+**对既有用户的影响**：若 `cordis.patch.yml` 里配过 `qqPortStart`，该字段会被忽略（不再报错）。
+状态文件里遗留的 QQ 桥数据不会被读取。
+
+### Fixed — QQ官方 图标错误
+
+「QQ官方」通道此前用的图形与 QQ 品牌图标不符；现改用 **QQ 企鹅图标**
+（原先 NapCat 通道在用的那枚，随通道移除一并迁移过来）。
+
+### Changed — 面板提示文案同步更新
+
+机器人页底部提示改为列出当前实际支持的通道与完整指令集
+（微信 / 飞书 / 纸飞机 / QQ官方 / 钉钉）。
+
 ## [4.1.0] - 2026-10-02
 
 本版主题：**各通道指令集对齐** —— 此前只有微信通道做全（13 项），

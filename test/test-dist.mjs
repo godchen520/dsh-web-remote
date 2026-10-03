@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 // 这些可测工具函数在各自的模块里。
 import { createProxyServer } from '../lib/proxy.mjs';
 import { generateSelfSignedCert, lanIPs } from '../lib/cert.mjs';
-import { createQQServer } from '../lib/qq.mjs';
 import { INJECT_SCRIPT } from '../lib/panel.mjs';
 import { createQQBotChannel, targetChanged } from '../lib/qqbot.mjs';
 
@@ -121,11 +120,25 @@ await new Promise((res, rej) => {
   ws.end();
 });
 
-// 7. QQ 桥
-const qq = createQQServer({ infoUrls: ['http://127.0.0.1:' + TARGET + '/remote/info'] });
-await qq.start(QQ_PORT);
-console.log('7. QQ bridge listening on', QQ_PORT);
-qq.close();
+// 7. QQ(NapCat) 桥已移除 —— 改为断言代码库里不再残留它的引用，
+//    避免以后有人把 qq.mjs 加回来却忘了同步面板/文档。
+{
+  const files = ['../lib/index.mjs', '../lib/panel.mjs'];
+  for (const rel of files) {
+    const src = fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+    for (const needle of ['createQQServer', 'qqServer', 'qqPortStart', 'NapCat', 'OneBot']) {
+      if (src.includes(needle)) {
+        console.error(`7. ${rel} 仍残留已移除的 QQ(NapCat) 引用：${needle}`);
+        process.exit(1);
+      }
+    }
+  }
+  if (fs.existsSync(new URL('../lib/qq.mjs', import.meta.url))) {
+    console.error('7. lib/qq.mjs 仍存在 —— 该通道已移除');
+    process.exit(1);
+  }
+  console.log('7. QQ(NapCat) 移除守卫 OK（无残留引用、文件已删）');
+}
 
 // 8. INJECT_SCRIPT 语法校验（关键回归测试）
 // panel.mjs 里 INJECT_SCRIPT 是模板字面量：任何 \n 之类的转义会被模板引擎

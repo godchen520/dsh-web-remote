@@ -90,7 +90,6 @@ pnpm add github:godchen520/dsh-web-remote
 | `targetPort` | 自动探测 | DSH 自身端口。**显式配置最优先**；否则依次读 `DSH_WEB_URL` → `DSH_PORT` → 兜底 `3080` |
 | `httpPortStart` | `3081` | 局域网 HTTP 起始端口（自动跳过占用） |
 | `httpsPortStart` | `3082` | 局域网 HTTPS 起始端口 |
-| `qqPortStart` | `3001` | QQ OneBot 桥起始端口 |
 | `cloudflaredPath` | `''` | 指定 cloudflared 路径；留空自动探测 / 自动下载 |
 | `pfxPath` | `''` | 指定 PFX 证书；留空自动生成自签名 |
 | `pfxPass` | `''` | PFX 密码 |
@@ -190,7 +189,7 @@ pnpm add github:godchen520/dsh-web-remote
 
 ## 🐧 QQ 官方机器人
 
-通过 **QQ 开放平台**接入的官方机器人（非 NapCat 协议模拟），支持：
+通过 **QQ 开放平台**接入的官方机器人，支持：
 
 **远程控制命令：**
 - `/链接` — 获取公网链接
@@ -231,7 +230,8 @@ pnpm add github:godchen520/dsh-web-remote
 
 **群聊启用：** 群主把机器人拉进群即可；若允许接收全量消息，需群主在机器人设置里开启。
 
-**多通道关系：** 本通道与原有的 **QQ（NapCat）** 通道互相独立，可同时存在。NapCat 功能更全但有封号风险；官方机器人合规稳定，推荐长期使用。
+**说明：** 这是本插件**唯一**的 QQ 接入方式。早期版本曾提供基于 OneBot 11（NapCat）的通道，
+已于 5.0.0 移除 —— 官方机器人合规稳定、无需额外 QQ 号，也不需要跑 NapCat 中间层。
 
 ## 🩺 通道健康监测
 
