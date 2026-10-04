@@ -1259,6 +1259,83 @@ await new Promise((res, rej) => {
   console.log('28. 转发/监听去重 OK（sendToSession 在 whenIdle 后抑制监听快照 + 监听判定未被改坏）');
 }
 
+// 29. 微信收消息必须与处理解耦
+// 用户报告「微信接收消息很慢」，并且长期以为是"微信接口休眠/挤压消息"。
+// 根因：收消息与处理消息写在**同一个 while 循环里串行 await** ——
+//   收到 A →（await 会话跑完，几十秒）→ 回复 A → 才回去拉下一条。
+// 后果不只是慢：每条消息自带的 context_token 有有效期，等得越久越可能过期，
+// 发送报 iLink "prepare failed" 只能入队积压 —— 这就是"挤压消息"的由来。
+// 修法：收消息只入队 + 立刻回执，消费者另起一条链按顺序处理。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  if (!/var weixinInbox = \[\]/.test(p)) {
+    console.error('29. 缺少 weixinInbox 队列 —— 收消息与处理没有解耦');
+    process.exit(1);
+  }
+  if (!/async function weixinDrainInbox\(/.test(p)) {
+    console.error('29. 缺少 weixinDrainInbox 消费者');
+    process.exit(1);
+  }
+  if (!/function weixinIsFastCommand\(/.test(p)) {
+    console.error('29. 缺少 weixinIsFastCommand —— 无法区分"要不要回执"');
+    process.exit(1);
+  }
+
+  // 收消息循环里**绝不能**出现会话处理逻辑（就是它把收消息堵住的）
+  const a = p.indexOf('async function weixinPollLoop()');
+  const b = p.indexOf('let feishuToken', a);
+  if (a < 0 || b < 0 || b <= a) {
+    console.error('29. 找不到 weixinPollLoop 的范围');
+    process.exit(1);
+  }
+  const poll = p.slice(a, b);
+  if (/weixinGenerateReply/.test(poll)) {
+    console.error('29. 收消息循环里又出现了 weixinGenerateReply —— 处理会再次堵住收消息（"接收慢/挤压消息"会复发）');
+    process.exit(1);
+  }
+  if (/await\s+agent\.whenIdle|whenIdle/.test(poll)) {
+    console.error('29. 收消息循环里出现了 whenIdle —— 会话思考期间会收不到新消息');
+    process.exit(1);
+  }
+  if (!/weixinInbox\.push/.test(poll)) {
+    console.error('29. 收消息循环没有入队');
+    process.exit(1);
+  }
+  if (!/weixinDrainInbox\(\)/.test(poll)) {
+    console.error('29. 收消息循环没有唤起消费者');
+    process.exit(1);
+  }
+  // 立刻回执必须在收消息循环里（放到消费者里就晚了，失去"马上告知"的意义）
+  if (!/已收到，正在处理/.test(poll)) {
+    console.error('29. 收消息循环里没有立刻回执 —— 用户仍会觉得发出去没反应');
+    process.exit(1);
+  }
+  // 回执不能 await（它自己也会拖慢收消息）
+  if (!/weixinSendMsg\([^)]*已收到，正在处理[\s\S]{0,120}?\.catch\(/.test(poll)) {
+    console.error('29. 立刻回执被 await 了 —— 回执本身会拖慢收消息，应 fire-and-forget（.catch 兜错）');
+    process.exit(1);
+  }
+
+  // 消费者里必须真的干活（生成回复 + 发送），否则消息进了队列没人处理
+  const d = p.slice(p.indexOf('async function weixinDrainInbox('), p.indexOf('async function weixinDrainInbox(') + 2600);
+  if (!/weixinGenerateReply\(item\.text\)/.test(d)) {
+    console.error('29. 消费者没有调用 weixinGenerateReply —— 队列里的消息没人处理');
+    process.exit(1);
+  }
+  if (!/weixinSendMsg\(weixinState\.botToken, item\.fromUserId, reply, item\.contextToken\)/.test(d)) {
+    console.error('29. 消费者没有把回复发回去');
+    process.exit(1);
+  }
+  // 顺序处理：一条失败不能吞掉后面的
+  if (!/while \(weixinInbox\.length > 0\)/.test(d)) {
+    console.error('29. 消费者不是"取空队列"的循环 —— 处理期间新来的消息会漏');
+    process.exit(1);
+  }
+
+  console.log('29. 微信收发解耦 OK（收消息只入队+立刻回执 / 消费者顺序处理 / 收消息循环不再被堵）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
