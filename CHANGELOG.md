@@ -53,6 +53,19 @@ All notable changes to this project will be documented in this file.
   最初按数组判断导致路径恒为 `unknown`；现在两种形态都兼容（守卫 #24 覆盖）
 - 顺带把 `isTailscaleRange` 的实现收拢到 `tailscale.mjs`（`index.mjs` 只做转发），
   避免"P2P 分页判定"与"免 token 判定"两处口径漂移
+- **`/链接` 命令同时给两条链接**（公网隧道 + P2P），5 个通道共用一份文案：
+
+  ```
+  公网链接：
+  https://xxx.trycloudflare.com/?token=...
+
+  P2P 链接：
+  http://100.x.y.z:5566
+  ```
+
+  P2P 没打通时，P2P 那半写 **`p2p未打通`**（不给一个点了打不开的地址）。
+  "打通" = 网卡里有 100.64/10 地址且 Tailscale 已连接；判定抽成纯函数 `p2pUrl`（守卫 #25 真值表）
+  - 隧道还没建好但 P2P 通了 → 也照样把链接发出去（P2P 那半有用）
 
 ### Fixed — 监听开关的守卫漏通道（存量 bug）
 

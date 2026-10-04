@@ -836,6 +836,51 @@ await new Promise((res, rej) => {
   console.log('24. Tailscale 状态探测 OK（' + cases.length + ' 例真值表 + CLI 路径推导 + 面板/宿主接线）');
 }
 
+// 25. /链接 命令：公网 + P2P 双链接，P2P 没打通要写明
+// 用户要求：`/链接` 同时发公网链接和 P2P 链接；检测到 P2P 没建立时，
+// P2P 那半写成「p2p未打通」，而不是给一个点了打不开的地址。
+{
+  const ts = await import('../lib/tailscale.mjs');
+  const ip = '100.103.130.41';
+  const connected = { cli: true, connected: true };
+  const notConnected = { cli: true, connected: false, stateText: '未登录' };
+  const cases = [
+    [['192.168.31.111'], connected, { port: 5566, lanOpen: true }, null, '没有 100.x → 未打通'],
+    [null, connected, { port: 5566, lanOpen: true }, null, 'ips 为空 → 未打通'],
+    [[ip], connected, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '已连接 + 免 token'],
+    [[ip], connected, { port: 5566, lanOpen: false, token: 'T' }, 'http://' + ip + ':5566/?token=T', '关掉免 token 要带 token'],
+    [[ip], notConnected, { port: 5566, lanOpen: true }, null, '有网卡地址但未登录 → 未打通'],
+    [[ip], null, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '没有探测数据时退回网卡判断'],
+    [[ip], connected, { port: null, lanOpen: true }, null, '没端口 → 未打通'],
+  ];
+  const bad = [];
+  for (const [ips, t, opts, want, desc] of cases) {
+    const got = ts.p2pUrl(ips, t, opts);
+    if (got !== want) bad.push(desc + '：期望 ' + want + ' 实得 ' + got);
+  }
+  if (bad.length) { console.error('25. p2pUrl 不符:\n  ' + bad.join('\n  ')); process.exit(1); }
+
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  if (idx.indexOf("'p2p未打通'") < 0) {
+    console.error('25. index.mjs 里没有「p2p未打通」文案 —— P2P 没建立时会给一个打不开的地址');
+    process.exit(1);
+  }
+  if (idx.indexOf('function linkCommandText(prefix)') < 0 || idx.indexOf('function p2pLinkUrl()') < 0) {
+    console.error('25. index.mjs 缺少 linkCommandText / p2pLinkUrl 共用实现');
+    process.exit(1);
+  }
+  const returns = (idx.match(/return linkCommandText\(/g) || []).length;
+  if (returns < 5) {
+    console.error('25. 只有 ' + returns + ' 处返回共用文案 —— 5 个通道（微信/飞书/纸飞机/QQ官方/钉钉）都要用');
+    process.exit(1);
+  }
+  if (idx.indexOf("return '公网链接") >= 0) {
+    console.error('25. 还有通道在用旧的「只发公网链接」写法');
+    process.exit(1);
+  }
+  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表 + ' + returns + ' 处共用文案 + p2p未打通 兜底）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
