@@ -704,9 +704,10 @@ await new Promise((res, rej) => {
   if (tsBad.length) { console.error('22. isTailscaleRange 不符: ' + JSON.stringify(tsBad)); process.exit(1); }
 
   const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
-  // P2P 链接放在「公网」页（定位：在外面访问家里），且不能混进「局域网」页
-  if (pan.indexOf('P2P（Tailscale）HTTP ') < 0) {
-    console.error('22. panel.mjs 没有把 P2P 链接渲染到「公网」页');
+  // P2P 链接放在「公网」页（定位：在外面访问家里），且不能混进「局域网」页。
+  // 标签就是 'P2P（Tailscale）'：用户明确要求去掉后面的 IP 与长提示（地址在下一行已经有了）。
+  if (pan.indexOf("label: 'P2P（Tailscale）'") < 0) {
+    console.error('22. panel.mjs 没有把 P2P 链接渲染到「公网」页（标签应为 P2P（Tailscale））');
     process.exit(1);
   }
   if (pan.indexOf('function lanOnlyIps(') < 0 || pan.indexOf('function p2pOnlyIps(') < 0) {
@@ -727,6 +728,39 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   console.log('22. P2P 接入 OK（免 token 段 + 公网页 P2P 链接 + 局域网过滤 + 地址重算，' + cases.length + ' 例真值表）');
+}
+
+// 23. 已删除功能的残留守卫
+// 「自定义公网链接」是半成品（只有显示/复制用，二维码和机器人 /链接 都绕过它），
+// 用户确认删除。这里守住"别又长回来"，同时守住机器人页签的精简文案。
+{
+  const files = ['../lib/index.mjs', '../lib/panel.mjs', '../lib/store.mjs'];
+  const bad = [];
+  for (const f of files) {
+    const src = fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+    const lines = src.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;            // 注释里提到"已删除"是允许的
+      if (line.indexOf('customPublicUrl') >= 0) bad.push(f.replace('../lib/', '') + ':' + (i + 1) + ' customPublicUrl');
+      if (line.indexOf('custom-url') >= 0) bad.push(f.replace('../lib/', '') + ':' + (i + 1) + ' custom-url');
+      if (line.indexOf('#webrm-custom-url') >= 0) bad.push(f.replace('../lib/', '') + ':' + (i + 1) + ' #webrm-custom-url');
+      if (line.indexOf('自定义公网链接') >= 0) bad.push(f.replace('../lib/', '') + ':' + (i + 1) + ' 自定义公网链接');
+    });
+  }
+  if (bad.length) {
+    console.error('23. 已删除的「自定义公网链接」又出现了:\n  ' + bad.join('\n  '));
+    process.exit(1);
+  }
+  const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  if (pan.indexOf('通过聊天机器人遥控 DSH') < 0) {
+    console.error('23. 机器人页签少了那一句说明');
+    process.exit(1);
+  }
+  if (pan.indexOf('支持指令：/帮助') >= 0) {
+    console.error('23. 机器人页签的长命令列表文案又回来了（用户要求删掉）');
+    process.exit(1);
+  }
+  console.log('23. 已删功能无残留 OK（自定义公网链接彻底移除 + 机器人页签文案精简）');
 }
 
 proxy.close();
