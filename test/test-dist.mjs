@@ -1057,16 +1057,14 @@ await new Promise((res, rej) => {
     }
   }
 
-  // 26d 渲染分辨率：**不能 1 模块 1 像素**。
-  // 那样位图只有 total px（版本4 才 41px），被 CSS 拉到 190~200px 显示时浏览器
-  // 放大插值 → 边缘发虚；手机上（2x/3x 屏）甚至扫不出来。
+  // 26d 渲染分辨率：位图必须 >=「显示尺寸 × devicePixelRatio」。
+  // 血泪史（两轮用户反馈"二维码糊"）：
+  //   第一版 1 模块 1 像素 → 版本4 才 41px，显示 174px → 放大 4.2 倍，糊到手机上扫不出；
+  //   第二版拍脑袋取 400px → 手机 DPR 3 时需 200x3=600px，仍被放大 1.5 倍，还是糊。
+  // 结论：不能写死常量，要按真实布局尺寸 × DPR 算（面板内容区 174、微信 200）。
   {
     const fnAt = p.indexOf('function setQrImage');
-    const fn = p.slice(fnAt, fnAt + 3000);
-    if (!/scale/.test(fn) || !/TARGET_PX|DISPLAY_MAX/.test(fn)) {
-      console.error('26. setQrImage 缺少分辨率缩放 —— 1 模块 1 像素会被 CSS 放大成糊图');
-      process.exit(1);
-    }
+    const fn = p.slice(fnAt, fnAt + 4000);
     if (/fillRect\(c \+ quiet, r \+ quiet, 1, 1\)/.test(fn)) {
       console.error('26. setQrImage 又变回「1 模块 1 像素」了 —— 二维码会糊');
       process.exit(1);
@@ -1079,21 +1077,52 @@ await new Promise((res, rej) => {
       console.error('26. 别给二维码设 image-rendering:pixelated —— 位图与显示尺寸非整数比时反而发毛');
       process.exit(1);
     }
-    // 实际算一遍：保证位图不小于显示尺寸，且体积不失控
-    const scaleOf = (modules) => {
-      const total = modules + 8;
-      let s = Math.ceil(400 / total);
-      if (s < 4) s = 4;
-      if (s > 12) s = 12;
-      return { total, s, px: total * s };
+    // 必须考虑设备像素比，否则高分屏上一定糊
+    if (!/devicePixelRatio/.test(fn)) {
+      console.error('26. setQrImage 没有考虑 devicePixelRatio —— 手机 DPR 3 时位图会不够，必然糊');
+      process.exit(1);
+    }
+    // 必须按真实显示尺寸算，而不是写死常量
+    if (!/getBoundingClientRect/.test(fn)) {
+      console.error('26. setQrImage 没有按真实显示尺寸算分辨率 —— 面板 174px 与微信 200px 需求不同');
+      process.exit(1);
+    }
+    // 实际算一遍：模拟 DPR 3 下的两种显示尺寸，位图必须够且不失控
+    const calc = (cssPx, dpr) => {
+      let needPx = Math.ceil(cssPx * dpr * 1.1);
+      if (needPx < 400) needPx = 400;
+      if (needPx > 1600) needPx = 1600;
+      return needPx;
     };
-    for (const [ver, modules] of [[1, 21], [4, 33], [10, 57], [20, 97]]) {
-      const { px } = scaleOf(modules);
-      if (px < 200) {
-        console.error('26. 版本 ' + ver + ' 位图只有 ' + px + 'px，小于显示尺寸 200px —— 会被放大成糊图');
+    const checks = [
+      ['面板 174 CSS px @DPR3', 174, 3, 522],
+      ['微信 200 CSS px @DPR3', 200, 3, 600],
+      ['面板 174 CSS px @DPR2', 174, 2, 348],
+      ['小屏 120 CSS px @DPR1', 120, 1, 120]
+    ];
+    for (const [label, cssPx, dpr, required] of checks) {
+      const needPx = calc(cssPx, dpr);
+      if (needPx < required) {
+        console.error('26. ' + label + ' 需要 ' + required + 'px，但只算了 ' + needPx + 'px —— 会被放大变糊');
         process.exit(1);
       }
-      if (px > 700) {
+      if (needPx > 1600) {
+        console.error('26. ' + label + ' 算出 ' + needPx + 'px，过大');
+        process.exit(1);
+      }
+    }
+    // 各版本都要有足够分辨率
+    for (const [ver, modules] of [[1, 21], [4, 33], [10, 57], [20, 97]]) {
+      const total = modules + 8;
+      const needPx = calc(200, 3);
+      let s = Math.ceil(needPx / total);
+      if (s < 4) s = 4;
+      const px = total * s;
+      if (px < 522) {
+        console.error('26. 版本 ' + ver + ' 位图只有 ' + px + 'px，小于 DPR3 所需 522px');
+        process.exit(1);
+      }
+      if (px > 1800) {
         console.error('26. 版本 ' + ver + ' 位图 ' + px + 'px 过大，PNG 体积无谓膨胀');
         process.exit(1);
       }
