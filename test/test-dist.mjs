@@ -1206,6 +1206,59 @@ await new Promise((res, rej) => {
   console.log('27. 帮助文本 OK（只列 ' + required.length + ' 条一级指令 + 二三级收进说明 + 不列 /启动 但命令仍可用）');
 }
 
+// 28. 转发与监听不能重复推送
+// 用户报告：「开启监听 + 选择会话」时，被选会话输出结果会给机器人发 2 次。
+// 根因：转发（cmdRelayToSession → sendToSession）会把回复直接 return 给机器人，
+// 与此同时监听定时器也发现该会话 running→idle 并再推一条「【会话】思考完毕」。
+// 修法：sendToSession 在 whenIdle() 之后把监听快照对齐到当前事件数（suppressMonitorFor）。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  if (!/function suppressMonitorFor\(/.test(p)) {
+    console.error('28. 缺少 suppressMonitorFor —— 转发后没有抑制监听，同一次输出会被推 2 次');
+    process.exit(1);
+  }
+
+  // 必须在 sendToSession 里、whenIdle() 之后调用（早了会被监听抢跑，等于没抑制）
+  const fnAt = p.indexOf('async function sendToSession(');
+  if (fnAt < 0) { console.error('28. 找不到 sendToSession'); process.exit(1); }
+  const fn = p.slice(fnAt, fnAt + 1800);
+  const idleAt = fn.indexOf('await agent.whenIdle()');
+  const supAt = fn.indexOf('suppressMonitorFor(');
+  if (idleAt < 0) { console.error('28. sendToSession 里找不到 await agent.whenIdle()'); process.exit(1); }
+  if (supAt < 0) {
+    console.error('28. sendToSession 没有调用 suppressMonitorFor —— 「监听 + 选会话」会收到 2 条');
+    process.exit(1);
+  }
+  if (supAt < idleAt) {
+    console.error('28. suppressMonitorFor 调在 whenIdle() 之前 —— 会话还在跑，监听随后仍会判定新一轮并补推一条');
+    process.exit(1);
+  }
+
+  // 快照必须写到监听用的那个 key（会话 id），且置为「已结束 + 当前事件数」
+  const sfn = p.slice(p.indexOf('function suppressMonitorFor('), p.indexOf('function suppressMonitorFor(') + 900);
+  if (!/weixinMonitorSnapshots\[sid\]\s*=\s*\{\s*wasRunning:\s*false/.test(sfn)) {
+    console.error('28. suppressMonitorFor 没有把快照写成 wasRunning:false —— 监听仍会判定 running→idle');
+    process.exit(1);
+  }
+  if (!/sessionEvents\(session\)\.length/.test(sfn)) {
+    console.error('28. suppressMonitorFor 没有对齐 eventsLen —— 监听仍会判定「有新事件」');
+    process.exit(1);
+  }
+  if (!/session\.header/.test(sfn)) {
+    console.error('28. suppressMonitorFor 没用 session.header.id 取 key —— 会与监听循环用的 key 对不上，抑制失效');
+    process.exit(1);
+  }
+
+  // 监听循环仍需保留「running→idle 且事件变多」的判定（别为了修重复把监听改坏）
+  if (!/snap\.wasRunning\s*&&\s*!isRunning\s*&&\s*evts\.length\s*>\s*snap\.eventsLen/.test(p)) {
+    console.error('28. 监听的核心判定被改了 —— 未选会话时的主动通知会失效');
+    process.exit(1);
+  }
+
+  console.log('28. 转发/监听去重 OK（sendToSession 在 whenIdle 后抑制监听快照 + 监听判定未被改坏）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');

@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.2.3] - 2026-10-04
+
+### Fixed — 「监听 + 选择会话」时同一次输出会收到 2 条
+
+用户报告：开了监听、又选了会话，被选会话输出结果时会给机器人发 **2 次**。
+
+根因是两条路径同时回消息：
+
+```
+你发内容给机器人
+   └─ 非命令 → cmdRelayToSession → sendToSession
+        ├─ agent.send(...) → await whenIdle()
+        ├─ ① return 回复内容          ← 机器人收到的第 1 条
+        └─ 会话状态 running→idle
+             └─ ② 监听定时器发现「有新事件 + 已结束」
+                   → 再推「【会话】思考完毕：…」  ← 机器人收到的第 2 条
+```
+
+只有在「选了会话」时才会走 `sendToSession`，所以这个重复也只在选会话后出现；
+没选会话时只有监听一条，监听关掉时只有转发一条——这正是用户描述的现象。
+
+| 位置 | 改动 |
+|---|---|
+| `lib/index.mjs` | 新增 `suppressMonitorFor(sessionId, session)`：把该会话的监听快照置为 `{ wasRunning:false, eventsLen:当前事件数 }`。`sendToSession` 在 `await agent.whenIdle()` **之后**调用它 |
+| 为什么在 whenIdle 之后 | 时序上 `whenIdle()` 的延续是**微任务**，会在监听的下一个 `setInterval` 宏任务之前执行，所以监听来不及抢跑；调早了则会话还在跑，监听随后仍会判定新一轮 |
+| 监听本身没动 | 核心判定 `snap.wasRunning && !isRunning && evts.length > snap.eventsLen` 保持不变 —— 未选会话时的主动通知照旧 |
+| 测试 | 新增守卫 #28：必须有 `suppressMonitorFor`、必须在 `whenIdle()` 之后调用、快照必须写成 `wasRunning:false` 且对齐 `eventsLen`、key 必须用 `session.header.id`（与监听循环一致）、监听核心判定不许被改坏 |
+
+行为对照（模拟两条路径实测）：
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 监听开 + 已选会话 | **2 条** ❌ | **1 条** ✅ |
+| 监听开 + 未选会话 | 1 条 | 1 条 ✅ |
+| 监听关 + 已选会话 | 1 条 | 1 条 ✅ |
+
+守卫 #28 已自验能拦住「删掉抑制调用」的回归。
+
 ## [5.2.2] - 2026-10-04
 
 ### Fixed — 帮助文本只列一级指令
