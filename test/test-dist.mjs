@@ -943,6 +943,56 @@ await new Promise((res, rej) => {
   console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"对端不在线" + ' + returns + ' 处共用文案）');
 }
 
+// 26. 二维码：国内源优先、不许带时间戳破缓存、慢源要有超时兜底、轮询不许重建 img
+{
+  const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  // 只认 QR_SOURCES 数组本体，注释里提到域名不算（踩过：注释先写了境外域名，守卫误判顺序）
+  const arrM = p.match(/QR_SOURCES\s*=\s*\[([\s\S]*?)\]/);
+  if (!arrM) {
+    console.error('26. 找不到 QR_SOURCES 数组声明');
+    process.exit(1);
+  }
+  const arr = arrM[1];
+  const cnAt = arr.indexOf('api.pwmqr.com');
+  const foreignAt = arr.indexOf('api.qrserver.com');
+  if (cnAt < 0 || foreignAt < 0) {
+    console.error('26. 二维码图源不完整（缺国内源或兜底源）');
+    process.exit(1);
+  }
+  if (cnAt > foreignAt) {
+    console.error('26. 境外源排在前面 —— 每张码要多等 0.8~2.1s，必须国内源优先');
+    process.exit(1);
+  }
+  if (/\.src\s*=\s*[^;\n]*\+\s*'&_='/.test(p) || /Date\.now\(\)/.test(p.split('QR_SOURCES')[1] || '')) {
+    console.error('26. 二维码地址又带上时间戳了 —— 会破坏缓存，每次轮询重渲染都重新下载');
+    process.exit(1);
+  }
+  const fnAt = p.indexOf('function setQrImage');
+  if (fnAt < 0) {
+    console.error('26. 缺少 setQrImage 共用实现');
+    process.exit(1);
+  }
+  const fn = p.slice(fnAt, fnAt + 2000);
+  if (!/setTimeout\(/.test(fn)) {
+    console.error('26. setQrImage 没有超时兜底 —— 源站只是慢、不报错时会永远卡住');
+    process.exit(1);
+  }
+  if (!/clearTimeout\(/.test(fn)) {
+    console.error('26. setQrImage 建了定时器却没清理，成功出图后仍会误切兜底源');
+    process.exit(1);
+  }
+  const uses = (p.match(/setQrImage\(/g) || []).length;
+  if (uses < 3) {
+    console.error('26. 共用出图函数只有 ' + (uses - 1) + ' 处调用 —— 面板二维码与微信绑定二维码都要走它');
+    process.exit(1);
+  }
+  if (!/data-qr-target/.test(p)) {
+    console.error('26. 缺少 data-qr-target 复用标记 —— 轮询重渲染会重建 img，缓存图也要重新解码');
+    process.exit(1);
+  }
+  console.log('26. 二维码出图 OK（国内源优先 + 2.5s 超时兜底 + 无时间戳 + ' + (uses - 1) + ' 处共用 + img 复用）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
