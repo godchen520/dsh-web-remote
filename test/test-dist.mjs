@@ -704,8 +704,21 @@ await new Promise((res, rej) => {
   if (tsBad.length) { console.error('22. isTailscaleRange 不符: ' + JSON.stringify(tsBad)); process.exit(1); }
 
   const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
-  if (pan.indexOf('P2P/Tailscale HTTP ') < 0) {
-    console.error('22. panel.mjs 没有把 100.64/10 那条链接标成 P2P/Tailscale');
+  // P2P 链接放在「公网」页（定位：在外面访问家里），且不能混进「局域网」页
+  if (pan.indexOf('P2P（Tailscale）HTTP ') < 0) {
+    console.error('22. panel.mjs 没有把 P2P 链接渲染到「公网」页');
+    process.exit(1);
+  }
+  if (pan.indexOf('function lanOnlyIps(') < 0 || pan.indexOf('function p2pOnlyIps(') < 0) {
+    console.error('22. panel.mjs 缺少 lanOnlyIps / p2pOnlyIps 拆分函数');
+    process.exit(1);
+  }
+  if (pan.indexOf('for (var ui = 0; ui < lanIps.length; ui++)') < 0) {
+    console.error('22. 「局域网」页没有改用 lanIps（Tailscale 地址会混进去）');
+    process.exit(1);
+  }
+  if (pan.indexOf('for (var pi = 0; pi < p2pIps.length; pi++)') < 0) {
+    console.error('22. 「公网」页没有渲染 P2P 地址');
     process.exit(1);
   }
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
@@ -713,7 +726,7 @@ await new Promise((res, rej) => {
     console.error('22. snapshot() 没有用 currentIps() 重算地址 —— Tailscale 起来后不重启看不到链接');
     process.exit(1);
   }
-  console.log('22. P2P 接入 OK（免 token 段 + 面板标注 + 地址重算，' + cases.length + ' 例真值表）');
+  console.log('22. P2P 接入 OK（免 token 段 + 公网页 P2P 链接 + 局域网过滤 + 地址重算，' + cases.length + ' 例真值表）');
 }
 
 proxy.close();
