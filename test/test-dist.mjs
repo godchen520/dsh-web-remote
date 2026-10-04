@@ -1133,6 +1133,79 @@ await new Promise((res, rej) => {
   console.log('26. 本地二维码 OK（零外部图床 + ' + (uses - 1) + ' 处共用 + 高分辨率渲染 + ' + how + '）');
 }
 
+// 27. 帮助文本：**只列一级指令**
+// 用户反馈「有的指令是二级甚至三级，但都在帮助里显示出来了，帮助里只显示一级指令」。
+// 一级 10 条；二级(/选择 N)、三级(/切换模型 N、/选强度 N) 收进所属一级的说明里。
+// /启动 故意不列（/链接 已兼作启动），但命令本身仍须可用。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  const m = p.match(/const HELP_LINES = \[([\s\S]*?)\];/);
+  if (!m) {
+    console.error('27. 找不到 HELP_LINES —— 帮助文本应有一份共用清单（原先微信与其它通道各写一份，会改一处漏一处）');
+    process.exit(1);
+  }
+  const lines = m[1].split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith("'"))
+    .map((s) => { const mm = s.match(/^'([\s\S]*)',?$/); return mm ? mm[1] : ''; })
+    .filter(Boolean);
+
+  // 二级/三级用法不许单独占行
+  const flat = lines.filter((l) => /^·\s*\/\s*(选择|选强度)/.test(l) || /^·\s*\/\s*切换模型\s*N\b/.test(l));
+  if (flat.length) {
+    console.error('27. 帮助里把二级/三级指令单独列行了：' + flat.join(' | ') + '\n    应并进所属一级指令的说明里（如「· /切换模型 —— 列出模型，回复「/切换模型 N」选中」）');
+    process.exit(1);
+  }
+
+  // 一级指令必须齐（10 条）
+  const required = ['/帮助', '/链接', '/停止', '/监听', '/状态', '/会话列表', '/当前会话', '/历史内容', '/当前模型', '/切换模型'];
+  for (const cmd of required) {
+    if (!lines.some((l) => l.startsWith('· ' + cmd + ' '))) {
+      console.error('27. 帮助里缺一级指令 ' + cmd);
+      process.exit(1);
+    }
+  }
+  const listed = lines.filter((l) => /^·\s*\//.test(l));
+  if (listed.length !== required.length) {
+    console.error('27. 帮助里的一级指令有 ' + listed.length + ' 条，应为 ' + required.length + ' 条：\n    ' + listed.join('\n    '));
+    process.exit(1);
+  }
+
+  // /启动 不列，但命令必须仍然可用（4 个通道有实现）
+  if (lines.some((l) => /^·\s*\/\s*启动/.test(l))) {
+    console.error('27. 帮助里又列了 /启动 —— /链接 已兼作启动（未启动会自动拉起），列出来会让用户困惑');
+    process.exit(1);
+  }
+  const startImpl = (p.match(/\^\\\/\?\(启动\|/g) || []).length;
+  if (startImpl < 3) {
+    console.error('27. /启动 的实现只剩 ' + startImpl + ' 处 —— 帮助里不列 ≠ 可以删掉命令，老用户会突然收到「未知命令」');
+    process.exit(1);
+  }
+
+  // 二级用法的「发现性」不能丢：必须在一级说明里提到
+  if (!lines.some((l) => l.indexOf('/会话列表') === 2 && l.indexOf('/选择 N') > 0)) {
+    console.error('27. /会话列表 的说明里没提「/选择 N」—— 二级用法收进说明，但不能消失');
+    process.exit(1);
+  }
+  if (!lines.some((l) => l.indexOf('/切换模型') === 2 && l.indexOf('思考强度') > 0)) {
+    console.error('27. /切换模型 的说明里没提「思考强度」—— 三级用法 /选强度 N 会变得无人可知（此前 5 份帮助里一处都没写）');
+    process.exit(1);
+  }
+
+  // 两个通道入口都必须用这份共用清单
+  if (!/const WEIXIN_HELP = [^;]*HELP_LINES\.join/.test(p)) {
+    console.error('27. 微信帮助没有用共用的 HELP_LINES');
+    process.exit(1);
+  }
+  if (!/function channelHelp\(channelName\)\s*\{[\s\S]{0,200}?HELP_LINES\.join/.test(p)) {
+    console.error('27. channelHelp 没有用共用的 HELP_LINES');
+    process.exit(1);
+  }
+
+  console.log('27. 帮助文本 OK（只列 ' + required.length + ' 条一级指令 + 二三级收进说明 + 不列 /启动 但命令仍可用）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
