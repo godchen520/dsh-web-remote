@@ -943,54 +943,122 @@ await new Promise((res, rej) => {
   console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"对端不在线" + ' + returns + ' 处共用文案）');
 }
 
-// 26. 二维码：国内源优先、不许带时间戳破缓存、慢源要有超时兜底、轮询不许重建 img
+// 26. 二维码：必须**本地生成**（不许再有外部图床），且真能解码
 {
   const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
-  // 只认 QR_SOURCES 数组本体，注释里提到域名不算（踩过：注释先写了境外域名，守卫误判顺序）
-  const arrM = p.match(/QR_SOURCES\s*=\s*\[([\s\S]*?)\]/);
-  if (!arrM) {
-    console.error('26. 找不到 QR_SOURCES 数组声明');
-    process.exit(1);
+
+  // 26a 不许残留任何外部二维码图床
+  const banned = ['api.pwmqr.com', 'api.qrserver.com', 'QR_SOURCES', 'qrserver'];
+  for (const b of banned) {
+    if (p.indexOf(b) >= 0) {
+      console.error('26. 还残留外部二维码图床「' + b + '」—— 必须本地生成（断网可用 + ?token= 不外发）');
+      process.exit(1);
+    }
   }
-  const arr = arrM[1];
-  const cnAt = arr.indexOf('api.pwmqr.com');
-  const foreignAt = arr.indexOf('api.qrserver.com');
-  if (cnAt < 0 || foreignAt < 0) {
-    console.error('26. 二维码图源不完整（缺国内源或兜底源）');
-    process.exit(1);
-  }
-  if (cnAt > foreignAt) {
-    console.error('26. 境外源排在前面 —— 每张码要多等 0.8~2.1s，必须国内源优先');
-    process.exit(1);
-  }
-  if (/\.src\s*=\s*[^;\n]*\+\s*'&_='/.test(p) || /Date\.now\(\)/.test(p.split('QR_SOURCES')[1] || '')) {
-    console.error('26. 二维码地址又带上时间戳了 —— 会破坏缓存，每次轮询重渲染都重新下载');
-    process.exit(1);
-  }
-  const fnAt = p.indexOf('function setQrImage');
-  if (fnAt < 0) {
-    console.error('26. 缺少 setQrImage 共用实现');
-    process.exit(1);
-  }
-  const fn = p.slice(fnAt, fnAt + 2000);
-  if (!/setTimeout\(/.test(fn)) {
-    console.error('26. setQrImage 没有超时兜底 —— 源站只是慢、不报错时会永远卡住');
-    process.exit(1);
-  }
-  if (!/clearTimeout\(/.test(fn)) {
-    console.error('26. setQrImage 建了定时器却没清理，成功出图后仍会误切兜底源');
-    process.exit(1);
+
+  // 26b 本地实现必须齐备
+  for (const fn of ['function qrEncode', 'function qrGenPoly', 'function qrRsEncode', 'function qrInterleave', 'function qrMatrix', 'function setQrImage']) {
+    if (p.indexOf(fn) < 0) {
+      console.error('26. 本地二维码实现缺少 ' + fn);
+      process.exit(1);
+    }
   }
   const uses = (p.match(/setQrImage\(/g) || []).length;
   if (uses < 3) {
-    console.error('26. 共用出图函数只有 ' + (uses - 1) + ' 处调用 —— 面板二维码与微信绑定二维码都要走它');
+    console.error('26. setQrImage 只有 ' + (uses - 1) + ' 处调用 —— 面板 / 微信绑定 / QQ 扫码都要走它');
     process.exit(1);
   }
-  if (!/data-qr-target/.test(p)) {
-    console.error('26. 缺少 data-qr-target 复用标记 —— 轮询重渲染会重建 img，缓存图也要重新解码');
+
+  // 26c 真正的硬标准：把面板里那份 qrEncode 抠出来跑，再用独立解码器读回来。
+  // 只做字符串断言是不够的 —— 二维码"看着像"但扫不出来太容易了（开发时就踩过：
+  // 格式信息位序写反，图完全正常、任何扫码器都读不出）。
+  const start = p.indexOf('  // ===== 本地二维码生成');
+  const endMark = '  var currentBotChannel = null;';
+  const end = p.indexOf(endMark);
+  if (start < 0 || end < 0 || end <= start) {
+    console.error('26. 找不到本地二维码实现段（注释锚点被改了？）');
     process.exit(1);
   }
-  console.log('26. 二维码出图 OK（国内源优先 + 2.5s 超时兜底 + 无时间戳 + ' + (uses - 1) + ' 处共用 + img 复用）');
+  const seg = p.slice(start, end);
+
+  let qrEncode;
+  try {
+    qrEncode = new Function(seg + '\n; return qrEncode;')();
+  } catch (e) {
+    console.error('26. 本地二维码实现无法求值: ' + e.message);
+    process.exit(1);
+  }
+
+  const cases = [
+    'https://type-agent-ball-essay.trycloudflare.com/?token=TOK123',
+    'http://100.103.130.41:5566',
+    'http://100.103.130.41:5566/?token=abcd1234efgh5678',
+    'http://192.168.1.100:5566/?token=abc123',
+    'https://example.com/',
+    'A',
+    // 下面这些落在版本 8~20：这两组块的**数据长度不同**（组1比组2少1字节），
+    // 按"所有块等长"处理会算出错误交织 —— 图看着完全正常、任何扫码器都读不出。
+    'a'.repeat(137) + 'v8', 'a'.repeat(196) + 'v10', 'a'.repeat(303) + 'v13', 'a'.repeat(466) + 'v17'
+  ];
+
+  let jsQR = null;
+  try { jsQR = (await import('jsqr')).default; } catch (e) { /* 见下 */ }
+
+  const render = (mat, scale, quiet) => {
+    const n = mat.length;
+    const size = (n + quiet * 2) * scale;
+    const data = new Uint8ClampedArray(size * size * 4);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const mr = Math.floor(y / scale) - quiet;
+        const mc = Math.floor(x / scale) - quiet;
+        const dark = (mr >= 0 && mc >= 0 && mr < n && mc < n) && mat[mr][mc] === 1;
+        const o = (y * size + x) * 4;
+        const v = dark ? 0 : 255;
+        data[o] = v; data[o + 1] = v; data[o + 2] = v; data[o + 3] = 255;
+      }
+    }
+    return { data, width: size, height: size };
+  };
+
+  for (const text of cases) {
+    let mat;
+    try { mat = qrEncode(text); } catch (e) {
+      console.error('26. qrEncode 抛异常（' + text.slice(0, 30) + '）: ' + e.message);
+      process.exit(1);
+    }
+    if (!mat || !mat.length) {
+      console.error('26. qrEncode 返回空（' + text.slice(0, 30) + '）');
+      process.exit(1);
+    }
+    const n = mat.length;
+    if ((n - 17) % 4 !== 0) {
+      console.error('26. 矩阵尺寸非法 ' + n + '（应为 4v+17）');
+      process.exit(1);
+    }
+    // 三个角定位图案外环必须实心
+    for (let i = 0; i < 7; i++) {
+      if (mat[0][i] !== 1 || mat[6][i] !== 1 || mat[i][0] !== 1 || mat[i][6] !== 1) {
+        console.error('26. 定位图案外环有洞（' + text.slice(0, 30) + '）');
+        process.exit(1);
+      }
+    }
+    if (jsQR) {
+      const img = render(mat, 4, 4);
+      const dec = jsQR(img.data, img.width, img.height);
+      if (!dec) {
+        console.error('26. 生成的二维码无法解码（画出来但扫不出）: ' + text.slice(0, 40));
+        process.exit(1);
+      }
+      if (dec.data !== text) {
+        console.error('26. 解码内容不符: 期望 ' + JSON.stringify(text) + ' 实得 ' + JSON.stringify(dec.data));
+        process.exit(1);
+      }
+    }
+  }
+
+  const how = jsQR ? 'jsQR 实测解码 ' + cases.length + ' 例通过' : '未装 jsqr，仅结构校验（跑 npm i 后才是完整验证）';
+  console.log('26. 本地二维码 OK（零外部图床 + ' + (uses - 1) + ' 处共用 + ' + how + '）');
 }
 
 proxy.close();
