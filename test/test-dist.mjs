@@ -836,37 +836,56 @@ await new Promise((res, rej) => {
   console.log('24. Tailscale 状态探测 OK（' + cases.length + ' 例真值表 + CLI 路径推导 + 面板/宿主接线）');
 }
 
-// 25. /链接 命令：公网 + P2P 双链接，P2P 没打通要写明
+// 25. /链接 命令：公网 + P2P 双链接，P2P 没打通要写明原因
 // 用户要求：`/链接` 同时发公网链接和 P2P 链接；检测到 P2P 没建立时，
 // P2P 那半写成「p2p未打通」，而不是给一个点了打不开的地址。
+// 其中包含**手机端有没有开 Tailscale**（读 peer 的 Online）——这是用户明确问过的能力。
 {
   const ts = await import('../lib/tailscale.mjs');
   const ip = '100.103.130.41';
-  const connected = { cli: true, connected: true };
-  const notConnected = { cli: true, connected: false, stateText: '未登录' };
+  const connected = { cli: true, connected: true, peers: [{ os: 'android', online: true }], onlinePeers: 1 };
+  const notConnected = { cli: true, connected: false, stateText: '未登录', peers: [], onlinePeers: 0 };
+  const phoneOff = { cli: true, connected: true, peers: [{ os: 'android', online: false }], onlinePeers: 0 };
+  const otherOff = { cli: true, connected: true, peers: [{ os: 'windows', online: false }], onlinePeers: 0 };
+  const noPeers = { cli: true, connected: true, peers: [], onlinePeers: 0 };
   const cases = [
-    [['192.168.31.111'], connected, { port: 5566, lanOpen: true }, null, '没有 100.x → 未打通'],
-    [null, connected, { port: 5566, lanOpen: true }, null, 'ips 为空 → 未打通'],
-    [[ip], connected, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '已连接 + 免 token'],
-    [[ip], connected, { port: 5566, lanOpen: false, token: 'T' }, 'http://' + ip + ':5566/?token=T', '关掉免 token 要带 token'],
-    [[ip], notConnected, { port: 5566, lanOpen: true }, null, '有网卡地址但未登录 → 未打通'],
-    [[ip], null, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '没有探测数据时退回网卡判断'],
-    [[ip], connected, { port: null, lanOpen: true }, null, '没端口 → 未打通'],
+    // [ips, ts, opts, 期望 url, 期望 reason, 说明]
+    [['192.168.31.111'], connected, { port: 5566, lanOpen: true }, null, '本机没有 Tailscale 地址', '没有 100.x'],
+    [null, connected, { port: 5566, lanOpen: true }, null, '本机没有 Tailscale 地址', 'ips 为空'],
+    [[ip], notConnected, { port: 5566, lanOpen: true }, null, '未登录', '有网卡地址但未登录'],
+    [[ip], phoneOff, { port: 5566, lanOpen: true }, null, '手机端未开 Tailscale', '★ 手机没开 Tailscale'],
+    [[ip], otherOff, { port: 5566, lanOpen: true }, null, '对端未在线', '非手机对端离线'],
+    [[ip], noPeers, { port: 5566, lanOpen: true }, null, '没有其它设备', 'tailnet 里只有本机'],
+    [[ip], connected, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '', '已连接 + 手机在线 + 免 token'],
+    [[ip], connected, { port: 5566, lanOpen: false, token: 'T' }, 'http://' + ip + ':5566/?token=T', '', '关掉免 token 要带 token'],
+    [[ip], null, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '', '没有探测数据时退回网卡判断'],
+    [[ip], connected, { port: null, lanOpen: true }, null, '代理未运行', '没端口'],
   ];
   const bad = [];
-  for (const [ips, t, opts, want, desc] of cases) {
-    const got = ts.p2pUrl(ips, t, opts);
-    if (got !== want) bad.push(desc + '：期望 ' + want + ' 实得 ' + got);
+  for (const [ips, t, opts, wantUrl, wantReason, desc] of cases) {
+    const got = ts.p2pState(ips, t, opts);
+    if (got.url !== wantUrl || got.reason !== wantReason) {
+      bad.push(desc + '：期望 {' + wantUrl + ' / ' + wantReason + '} 实得 ' + JSON.stringify(got));
+    }
   }
-  if (bad.length) { console.error('25. p2pUrl 不符:\n  ' + bad.join('\n  ')); process.exit(1); }
+  if (bad.length) { console.error('25. p2pState 不符:\n  ' + bad.join('\n  ')); process.exit(1); }
+  // p2pUrl 必须与 p2pState 同源（不许各写一份判定）
+  if (ts.p2pUrl([ip], phoneOff, { port: 5566, lanOpen: true }) !== null) {
+    console.error('25. p2pUrl 与 p2pState 判定不一致（手机离线时仍给出链接）');
+    process.exit(1);
+  }
 
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
   if (idx.indexOf("'p2p未打通'") < 0) {
     console.error('25. index.mjs 里没有「p2p未打通」文案 —— P2P 没建立时会给一个打不开的地址');
     process.exit(1);
   }
-  if (idx.indexOf('function linkCommandText(prefix)') < 0 || idx.indexOf('function p2pLinkUrl()') < 0) {
-    console.error('25. index.mjs 缺少 linkCommandText / p2pLinkUrl 共用实现');
+  if (idx.indexOf('p2p.reason') < 0) {
+    console.error('25. index.mjs 没把未打通的原因拼进文案（用户要能看出是"手机端没开"）');
+    process.exit(1);
+  }
+  if (idx.indexOf('function linkCommandText(prefix)') < 0 || idx.indexOf('function p2pStateNow()') < 0) {
+    console.error('25. index.mjs 缺少 linkCommandText / p2pStateNow 共用实现');
     process.exit(1);
   }
   const returns = (idx.match(/return linkCommandText\(/g) || []).length;
@@ -878,7 +897,7 @@ await new Promise((res, rej) => {
     console.error('25. 还有通道在用旧的「只发公网链接」写法');
     process.exit(1);
   }
-  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表 + ' + returns + ' 处共用文案 + p2p未打通 兜底）');
+  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"手机端未开 Tailscale" + ' + returns + ' 处共用文案）');
 }
 
 proxy.close();
