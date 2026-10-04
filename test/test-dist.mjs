@@ -1057,8 +1057,51 @@ await new Promise((res, rej) => {
     }
   }
 
+  // 26d 渲染分辨率：**不能 1 模块 1 像素**。
+  // 那样位图只有 total px（版本4 才 41px），被 CSS 拉到 190~200px 显示时浏览器
+  // 放大插值 → 边缘发虚；手机上（2x/3x 屏）甚至扫不出来。
+  {
+    const fnAt = p.indexOf('function setQrImage');
+    const fn = p.slice(fnAt, fnAt + 3000);
+    if (!/scale/.test(fn) || !/TARGET_PX|DISPLAY_MAX/.test(fn)) {
+      console.error('26. setQrImage 缺少分辨率缩放 —— 1 模块 1 像素会被 CSS 放大成糊图');
+      process.exit(1);
+    }
+    if (/fillRect\(c \+ quiet, r \+ quiet, 1, 1\)/.test(fn)) {
+      console.error('26. setQrImage 又变回「1 模块 1 像素」了 —— 二维码会糊');
+      process.exit(1);
+    }
+    if (/\(c \+ quiet\) \* scale, \(r \+ quiet\) \* scale, scale, scale/.test(fn) === false) {
+      console.error('26. setQrImage 没有按 scale 画模块');
+      process.exit(1);
+    }
+    if (/imageRendering\s*=\s*'pixelated'/.test(fn)) {
+      console.error('26. 别给二维码设 image-rendering:pixelated —— 位图与显示尺寸非整数比时反而发毛');
+      process.exit(1);
+    }
+    // 实际算一遍：保证位图不小于显示尺寸，且体积不失控
+    const scaleOf = (modules) => {
+      const total = modules + 8;
+      let s = Math.ceil(400 / total);
+      if (s < 4) s = 4;
+      if (s > 12) s = 12;
+      return { total, s, px: total * s };
+    };
+    for (const [ver, modules] of [[1, 21], [4, 33], [10, 57], [20, 97]]) {
+      const { px } = scaleOf(modules);
+      if (px < 200) {
+        console.error('26. 版本 ' + ver + ' 位图只有 ' + px + 'px，小于显示尺寸 200px —— 会被放大成糊图');
+        process.exit(1);
+      }
+      if (px > 700) {
+        console.error('26. 版本 ' + ver + ' 位图 ' + px + 'px 过大，PNG 体积无谓膨胀');
+        process.exit(1);
+      }
+    }
+  }
+
   const how = jsQR ? 'jsQR 实测解码 ' + cases.length + ' 例通过' : '未装 jsqr，仅结构校验（跑 npm i 后才是完整验证）';
-  console.log('26. 本地二维码 OK（零外部图床 + ' + (uses - 1) + ' 处共用 + ' + how + '）');
+  console.log('26. 本地二维码 OK（零外部图床 + ' + (uses - 1) + ' 处共用 + 高分辨率渲染 + ' + how + '）');
 }
 
 proxy.close();
