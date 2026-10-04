@@ -38,10 +38,10 @@ All notable changes to this project will be documented in this file.
 **接入前置条件：** 需要**企业/组织**（个人版钉钉不支持应用机器人），且要**发布应用**并申请
 「企业内机器人发送消息权限」（仅用被动回复可不申请）。
 
-### Added — Tailscale 状态探测（面板直接看"开没开 / 直连还是中继"）
+### Added — Tailscale 状态探测（面板直接看"通道通没通 / 直连还是中继"）
 
-面板「公网」页新增一行 **Tailscale 状态**，例如
-`Tailscale：已连接 · 手机在线 · 路径 中继（tok）`，不用再敲命令行。新增 `lib/tailscale.mjs`：
+面板「公网」页在 `P2P（Tailscale）` 标签**同一行后面**显示状态，例如
+`P2P（Tailscale）　通道已连通 · 路径 中继（tok）`，不用再敲命令行。新增 `lib/tailscale.mjs`：
 
 - 数据来源两条：**网卡里的 100.64.0.0/10 地址**（零成本兜底）+
   **`tailscale status --json`**（`BackendState` / peer 的 `CurAddr` 直连 vs `Relay` 中继 / `Online`）
@@ -53,6 +53,17 @@ All notable changes to this project will be documented in this file.
   最初按数组判断导致路径恒为 `unknown`；现在两种形态都兼容（守卫 #24 覆盖）
 - 顺带把 `isTailscaleRange` 的实现收拢到 `tailscale.mjs`（`index.mjs` 只做转发），
   避免"P2P 分页判定"与"免 token 判定"两处口径漂移
+- **状态行措辞只描述"通道"，不断言手机**（用户逐轮定稿）：
+  - 删掉「Tailscale 状态」标题与「Tailscale：」前缀（紧跟 `P2P（Tailscale）` 时是多余的）
+  - 删掉「已连接 · 」前缀
+  - **不写「手机在线/离线」** —— `Online` 只表示对端连着控制面，不代表隧道建立
+    （实测 `LastHandshake` 常为 `0`、`Rx/Tx` 为 `0`）。改为：
+    `通道已连通 · 路径 …` / `通道未连通（对端不在线）` / `通道未连通（没有其它设备）`；
+    **未连通时不显示路径**（那是上次的中继，容易误导）
+  - 未运行/未登录**套用同一套版式**（同一行、无独立前缀行）
+- **记住上次见过的 Tailscale 地址**（`lastIp`）：Tailscale 一停网卡就消失，
+  但面板那条 P2P 链接要**保留**，所以把见过的地址记下来，未运行/未登录时照样显示，
+  文案注明「未运行（上次地址，启动后可用）」
 - **`/链接` 命令同时给两条链接**（公网隧道 + P2P），5 个通道共用一份文案：
 
   ```

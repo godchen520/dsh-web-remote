@@ -729,7 +729,7 @@ await new Promise((res, rej) => {
     console.error('22. 「局域网」页没有改用 lanIps（Tailscale 地址会混进去）');
     process.exit(1);
   }
-  if (pan.indexOf('for (var pi = 0; pi < p2pIps.length; pi++)') < 0) {
+  if (pan.indexOf('for (var pi = 0; pi < p2pList.length; pi++)') < 0) {
     console.error('22. 「公网」页没有渲染 P2P 地址');
     process.exit(1);
   }
@@ -825,12 +825,55 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
-  if (pan.indexOf('function tailscaleLine(') < 0 || pan.indexOf('tailscaleLine(info && info.tailscale)') < 0) {
-    console.error('24. panel.mjs 没有渲染 Tailscale 状态行');
+  // 用户定稿的版式：状态**跟在「P2P（Tailscale）」同一行后面**；
+  // 没有「Tailscale 状态」标题、没有「Tailscale：」前缀；
+  // 未运行/未登录**套用同一套模板**（只有标签行、没有链接行），不再有独立的前缀行。
+  if (pan.indexOf('function tailscaleNote(') < 0) {
+    console.error('24. panel.mjs 缺少 tailscaleNote');
+    process.exit(1);
+  }
+  if (pan.indexOf('note: tsNote,') < 0 || pan.indexOf('tailscaleNote(info && info.tailscale)') < 0) {
+    console.error('24. Tailscale 状态没有挂在「P2P（Tailscale）」那一行上');
+    process.exit(1);
+  }
+  if (pan.indexOf('if (!p2pList.length && tsNote) {') < 0) {
+    console.error('24. Tailscale 没跑时没有套用同一套版式（应仍显示「P2P（Tailscale）」标签行）');
+    process.exit(1);
+  }
+  if (pan.indexOf('tailscaleStandalone') >= 0) {
+    console.error('24. 还留着独立前缀行 tailscaleStandalone —— 用户要求未运行也套用手机离线那套模板');
+    process.exit(1);
+  }
+  if (pan.indexOf('Tailscale：已连接') >= 0 || pan.indexOf('Tailscale：未运行') >= 0) {
+    console.error('24. 状态文案还带着「Tailscale：」前缀 —— 它紧跟在 P2P（Tailscale）后面，前缀是多余的');
+    process.exit(1);
+  }
+  // 用户要求：不要在 P2P 后面写「已连接」；也不要用「手机在线/离线」这种过度断言
+  // —— Online 只表示对端连着控制面，不代表隧道建立（实测 LastHandshake 常为 0）。
+  // 现在只描述**通道**：通道已连通 / 通道未连通（对端不在线）。
+  if (pan.indexOf('通道已连通') < 0 || pan.indexOf('通道未连通') < 0) {
+    console.error('24. 状态行没有改成描述「通道」状态');
+    process.exit(1);
+  }
+  if (/return '已连接 · ' \+ who/.test(pan) || pan.indexOf("'已连接 · ' + who") >= 0) {
+    console.error('24. 状态行还写着「已连接 · 」—— 用户要求 P2P 后面不要写已连接');
+    process.exit(1);
+  }
+  if (pan.indexOf("'手机在线'") >= 0 || pan.indexOf("'手机离线'") >= 0) {
+    console.error('24. 状态行还在写「手机在线/离线」—— 用户指出这个断言不准确');
+    process.exit(1);
+  }
+  // 未运行时链接行要**保留**（用记住的上次地址）
+  if (pan.indexOf('info.tailscale.lastIp') < 0 || pan.indexOf('var p2pList = p2pIps.length ? p2pIps') < 0) {
+    console.error('24. 未运行时没有保留链接行（缺少"上次记住的地址"兜底）');
+    process.exit(1);
+  }
+  if (pan.indexOf('上次地址，启动后可用') < 0) {
+    console.error('24. 未运行但保留链接时，提示文案没说清是"上次地址"');
     process.exit(1);
   }
   if (pan.indexOf("if (!ts.cli && !ts.viaInterface) return '';") < 0) {
-    console.error('24. 没装 Tailscale 的用户不该看到状态行（tailscaleLine 缺少过滤）');
+    console.error('24. 没装 Tailscale 的用户不该看到状态行（缺少过滤）');
     process.exit(1);
   }
   console.log('24. Tailscale 状态探测 OK（' + cases.length + ' 例真值表 + CLI 路径推导 + 面板/宿主接线）');
@@ -853,10 +896,10 @@ await new Promise((res, rej) => {
     [['192.168.31.111'], connected, { port: 5566, lanOpen: true }, null, '本机没有 Tailscale 地址', '没有 100.x'],
     [null, connected, { port: 5566, lanOpen: true }, null, '本机没有 Tailscale 地址', 'ips 为空'],
     [[ip], notConnected, { port: 5566, lanOpen: true }, null, '未登录', '有网卡地址但未登录'],
-    [[ip], phoneOff, { port: 5566, lanOpen: true }, null, '手机端未开 Tailscale', '★ 手机没开 Tailscale'],
-    [[ip], otherOff, { port: 5566, lanOpen: true }, null, '对端未在线', '非手机对端离线'],
+    [[ip], phoneOff, { port: 5566, lanOpen: true }, null, '对端不在线', '★ 有对端但全离线'],
+    [[ip], otherOff, { port: 5566, lanOpen: true }, null, '对端不在线', '非手机对端离线（同一句，不断言"手机没开"）'],
     [[ip], noPeers, { port: 5566, lanOpen: true }, null, '没有其它设备', 'tailnet 里只有本机'],
-    [[ip], connected, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '', '已连接 + 手机在线 + 免 token'],
+    [[ip], connected, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '', '已连接 + 有对端在线 + 免 token'],
     [[ip], connected, { port: 5566, lanOpen: false, token: 'T' }, 'http://' + ip + ':5566/?token=T', '', '关掉免 token 要带 token'],
     [[ip], null, { port: 5566, lanOpen: true }, 'http://' + ip + ':5566', '', '没有探测数据时退回网卡判断'],
     [[ip], connected, { port: null, lanOpen: true }, null, '代理未运行', '没端口'],
@@ -871,7 +914,7 @@ await new Promise((res, rej) => {
   if (bad.length) { console.error('25. p2pState 不符:\n  ' + bad.join('\n  ')); process.exit(1); }
   // p2pUrl 必须与 p2pState 同源（不许各写一份判定）
   if (ts.p2pUrl([ip], phoneOff, { port: 5566, lanOpen: true }) !== null) {
-    console.error('25. p2pUrl 与 p2pState 判定不一致（手机离线时仍给出链接）');
+    console.error('25. p2pUrl 与 p2pState 判定不一致（对端不在线时仍给出链接）');
     process.exit(1);
   }
 
@@ -897,7 +940,7 @@ await new Promise((res, rej) => {
     console.error('25. 还有通道在用旧的「只发公网链接」写法');
     process.exit(1);
   }
-  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"手机端未开 Tailscale" + ' + returns + ' 处共用文案）');
+  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"对端不在线" + ' + returns + ' 处共用文案）');
 }
 
 proxy.close();
