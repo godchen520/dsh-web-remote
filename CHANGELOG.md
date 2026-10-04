@@ -38,6 +38,22 @@ All notable changes to this project will be documented in this file.
 **接入前置条件：** 需要**企业/组织**（个人版钉钉不支持应用机器人），且要**发布应用**并申请
 「企业内机器人发送消息权限」（仅用被动回复可不申请）。
 
+### Added — Tailscale 状态探测（面板直接看"开没开 / 直连还是中继"）
+
+面板「公网」页新增一行 **Tailscale 状态**，例如
+`Tailscale：已连接 · 手机在线 · 路径 中继（tok）`，不用再敲命令行。新增 `lib/tailscale.mjs`：
+
+- 数据来源两条：**网卡里的 100.64.0.0/10 地址**（零成本兜底）+
+  **`tailscale status --json`**（`BackendState` / peer 的 `CurAddr` 直连 vs `Relay` 中继 / `Online`）
+- CLI 定位顺序：`PATH` → **Windows 服务 `ImagePath` 同目录**（便携版装在任意目录时只有这条能找到）
+  → 常见安装路径；负结果缓存 5 分钟，不反复查注册表
+- 20 秒缓存 + 后台刷新，`snapshot()` 永不阻塞请求；CLI 不可用时退回网卡判断
+- **没装 Tailscale 的用户看不到这一行**（不给无关的人添噪音）
+- 踩坑记录：`status --json` 里 peer 的 `Relay` 是**字符串**（`"tok"`）不是数组，
+  最初按数组判断导致路径恒为 `unknown`；现在两种形态都兼容（守卫 #24 覆盖）
+- 顺带把 `isTailscaleRange` 的实现收拢到 `tailscale.mjs`（`index.mjs` 只做转发），
+  避免"P2P 分页判定"与"免 token 判定"两处口径漂移
+
 ### Fixed — 监听开关的守卫漏通道（存量 bug）
 
 关闭某个通道的监听时，各通道各写各的判断，导致 **关掉飞书会把 Telegram / QQ官方 的监听一起停掉**：

@@ -543,11 +543,22 @@ await new Promise((res, rej) => {
     console.log('19. 同步脚本不在预期位置，跳过（非本机环境）');
   } else {
     const sync = fs.readFileSync(syncPath, 'utf8');
-    if (sync.indexOf('lib\\dingtalk.mjs') < 0) {
-      console.error('19. sync-dsh-web-remote.ps1 的文件清单缺少 lib\\dingtalk.mjs —— 部署副本不会更新');
+    // 每个 lib/ 下的模块都必须在清单里 —— 漏一个，部署副本就是旧代码（踩过：dingtalk.mjs）
+    const libs = fs.readdirSync(new URL('../lib/', import.meta.url)).filter((f) => f.endsWith('.mjs'));
+    const missing = libs.filter((f) => sync.indexOf('lib\\' + f) < 0);
+    if (missing.length) {
+      console.error('19. sync-dsh-web-remote.ps1 的文件清单缺少：' + missing.map((f) => 'lib\\' + f).join(', ')
+        + ' —— 部署副本不会更新');
       process.exit(1);
     }
-    console.log('19. 同步脚本文件清单 OK（含 lib\\dingtalk.mjs）');
+    // ⚠️ 必须带 UTF-8 BOM：脚本里有中文，Windows PowerShell 5.1 无 BOM 时会按 GBK 读，
+    // 中文被解析坏 → 脚本**根本跑不起来**（踩过两次：一次是初次修复，一次是编辑器改写丢了 BOM）。
+    const head = fs.readFileSync(syncPath).subarray(0, 3);
+    if (!(head[0] === 0xEF && head[1] === 0xBB && head[2] === 0xBF)) {
+      console.error('19. sync-dsh-web-remote.ps1 丢了 UTF-8 BOM —— PowerShell 5.1 会按 GBK 读中文，脚本会直接报语法错');
+      process.exit(1);
+    }
+    console.log('19. 同步脚本 OK（lib/ 下 ' + libs.length + ' 个模块全在清单里 + UTF-8 BOM 在）');
   }
 }
 
@@ -761,6 +772,68 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   console.log('23. 已删功能无残留 OK（自定义公网链接彻底移除 + 机器人页签文案精简）');
+}
+
+// 24. Tailscale 状态探测守卫
+// 面板要能直接回答「开没开 / 手机在不在线 / 直连还是中继（哪个节点）」。
+// 踩过的坑：status --json 里 peer 的 Relay 是**字符串**（"tok"）不是数组，
+// 早期按数组判断 → path 恒为 unknown。真值表两种形态都覆盖。
+{
+  const ts = await import('../lib/tailscale.mjs');
+  const cases = [
+    [null, (r) => r.cli === false, '没有 CLI 数据时 cli=false'],
+    [{ BackendState: 'NeedsLogin', Self: {}, Peer: {} }, (r) => r.stateText === '未登录' && r.connected === false, '未登录'],
+    [{ BackendState: 'Stopped' }, (r) => r.stateText === '未运行', '未运行'],
+    [{ BackendState: 'Running', Self: { TailscaleIPs: ['fd7a::1'] }, Peer: {} }, (r) => r.connected === true && r.selfIp === null, '无 IPv4 时 selfIp 为空'],
+    [
+      { BackendState: 'Running', Self: { TailscaleIPs: ['100.1.2.3'] }, Peer: { a: { HostName: 'x', OS: 'android', Online: true, CurAddr: '1.2.3.4:5' } } },
+      (r) => r.pathSummary === '直连' && r.peers[0].path === 'direct', '直连',
+    ],
+    [
+      { BackendState: 'Running', Self: {}, Peer: { a: { HostName: 'x', OS: 'android', Online: true, Relay: 'sin' } } },
+      (r) => r.pathSummary === '中继' && r.relay === 'sin', '中继（Relay 为字符串）',
+    ],
+    [
+      { BackendState: 'Running', Self: {}, Peer: { a: { HostName: 'x', OS: 'android', Online: true, Relay: ['hkg'] } } },
+      (r) => r.relay === 'hkg', '中继（Relay 为数组，兼容）',
+    ],
+    [
+      { BackendState: 'Running', Self: {}, Peer: { a: { HostName: 'x', OS: 'android', Online: false, Relay: 'tok' }, b: { OS: 'windows', Online: true, CurAddr: '5.6.7.8:9' } } },
+      (r) => r.onlinePeers === 1 && r.peers.length === 2 && r.pathSummary === '直连', '在线 peer 优先做路径摘要',
+    ],
+  ];
+  const bad = [];
+  for (const [raw, check, desc] of cases) {
+    const r = ts.summarizeStatus(raw);
+    if (!check(r)) bad.push(desc + ' → ' + JSON.stringify(r));
+  }
+  if (bad.length) { console.error('24. summarizeStatus 不符:\n  ' + bad.join('\n  ')); process.exit(1); }
+
+  const ipCases = [['100.64.0.1', true], ['100.127.255.255', true], ['100.128.0.1', false], ['100.63.255.255', false], ['192.168.1.1', false], ['', false], [null, false]];
+  const ipBad = ipCases.filter(([ip, want]) => ts.isTailscaleIp(ip) !== want);
+  if (ipBad.length) { console.error('24. isTailscaleIp 不符: ' + JSON.stringify(ipBad)); process.exit(1); }
+
+  if (ts.cliFromImagePath('"E:\\Tailscale IPN\\tailscaled.exe" -service') !== 'E:\\Tailscale IPN\\tailscale.exe') {
+    console.error('24. cliFromImagePath 没能从服务 ImagePath 推出 CLI（便携版装在任意目录时全靠它）');
+    process.exit(1);
+  }
+  if (ts.cliFromImagePath('') !== null) { console.error('24. cliFromImagePath 空输入应返回 null'); process.exit(1); }
+
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  if (idx.indexOf('createTailscaleProbe') < 0 || idx.indexOf('tailscale: tailscaleProbe.snapshot()') < 0) {
+    console.error('24. index.mjs 没有把 Tailscale 状态放进 /remote/info');
+    process.exit(1);
+  }
+  const pan = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  if (pan.indexOf('function tailscaleLine(') < 0 || pan.indexOf('tailscaleLine(info && info.tailscale)') < 0) {
+    console.error('24. panel.mjs 没有渲染 Tailscale 状态行');
+    process.exit(1);
+  }
+  if (pan.indexOf("if (!ts.cli && !ts.viaInterface) return '';") < 0) {
+    console.error('24. 没装 Tailscale 的用户不该看到状态行（tailscaleLine 缺少过滤）');
+    process.exit(1);
+  }
+  console.log('24. Tailscale 状态探测 OK（' + cases.length + ' 例真值表 + CLI 路径推导 + 面板/宿主接线）');
 }
 
 proxy.close();
