@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.2.5] - 2026-10-05
+
+### Fixed — 通道没配凭证时，监听每轮白试并刷屏报错
+
+用户日志里每轮会话输出都出现：
+
+```
+[feishu] monitor send failed: 未配置飞书凭证
+```
+
+**根因两处：**
+
+| # | 位置 | 问题 |
+|---|---|---|
+| 1 | 启动恢复 | `feishuMonitorMode = true` **无条件**从 store 恢复 —— 凭证被清掉后开关还留着，监听一直以为该推 |
+| 2 | 监听发送分支 | 只判断 `feishuMonitorMode && feishuLastChatId`，**没查凭证** |
+
+对照其它通道，做法本来就不一致：微信查了 `botToken`/`userId`、Telegram/QQ 查了 `channel` 与 `health`、钉钉有整套 `dtSkip`，只有飞书漏了。
+
+**改动：**
+
+| 位置 | 改动 |
+|---|---|
+| 启动恢复 | 先 `feishuLoadConfig()` 确认 `appId`/`appSecret` 都在才恢复监听；否则不恢复并打一行说明「补上凭证后重新发 /监听 即可」 |
+| 监听发送 | 加 `fsSkip` 判断链：配置读取失败 / 未配凭证 / 还没有会话目标 —— 跳过原因写进 `monitorLastSendResult`（`/remote/diag` 里能看出为什么没推） |
+| 日志去重 | 新增 `feishuMonitorSkipLogged`，只在**跳过原因变化**时打一次日志，不再每轮刷屏（这正是用户遇到的问题） |
+| 测试 | 新增守卫 #30：启动恢复必须在 `feishuMonitorMode = true` **之前**调用 `feishuLoadConfig()`；发送分支必须有「未配置飞书凭证」跳过且原因写进诊断；跳过日志必须去重；正常发送调用不能丢 |
+
+守卫 #30 已自验能拦住「无条件恢复监听开关」的回归。
+
 ## [5.2.4] - 2026-10-05
 
 ### Fixed — 微信接收消息慢 / 长期"挤压消息"的真正原因

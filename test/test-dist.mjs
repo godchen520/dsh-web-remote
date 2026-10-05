@@ -1346,6 +1346,62 @@ await new Promise((res, rej) => {
   console.log('29. 微信收发解耦 OK（收消息只入队 / 消费者顺序处理 / 收消息循环不再被堵 / 回执只有一条）');
 }
 
+// 30. 通道没配凭证时，监听不该每轮白试
+// 用户日志里每轮都刷「[feishu] monitor send failed: 未配置飞书凭证」。
+// 根因两处：
+//   ① 启动时无条件把 feishuMonitorMode 恢复成开，没查凭证是否还在；
+//   ② 监听发送分支只判断了 feishuMonitorMode && feishuLastChatId，没查凭证。
+// 对照：微信查了 botToken/userId、TG/QQ 查了 channel 与 health、钉钉有整套 dtSkip。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  // ① 启动恢复必须查凭证：`feishuMonitorMode = true` 之前必须出现过 feishuLoadConfig
+  const restoreAt = p.indexOf('// 飞书监听恢复');
+  if (restoreAt < 0) {
+    console.error('30. 找不到「飞书监听恢复」段');
+    process.exit(1);
+  }
+  // 取到下一个 setTimeout/启动块之前，够覆盖这一段
+  const restore = p.slice(restoreAt, restoreAt + 1200);
+  const setTrueAt = restore.indexOf('feishuMonitorMode = true');
+  if (setTrueAt < 0) {
+    console.error('30. 飞书监听恢复段里找不到 feishuMonitorMode = true');
+    process.exit(1);
+  }
+  // 只看真正把开关打开那一段的前文里有没有查凭证
+  const before = restore.slice(0, setTrueAt);
+  if (!/feishuLoadConfig\(\)/.test(before)) {
+    console.error('30. 飞书监听恢复没有先检查凭证就打开 —— 凭证没了开关还留着，监听每轮白试并刷屏报错');
+    process.exit(1);
+  }
+
+  // ② 监听发送分支必须查凭证（并允许"跳过"）
+  if (!/未配置飞书凭证（appId\/appSecret）/.test(p)) {
+    console.error('30. 监听发送分支没有"未配置飞书凭证"的跳过判断');
+    process.exit(1);
+  }
+  if (!/feishu 跳过: /.test(p)) {
+    console.error('30. 飞书跳过的原因没有记进 monitorLastSendResult —— /remote/diag 里看不出为什么没推');
+    process.exit(1);
+  }
+  // 跳过日志要去重，否则每轮刷屏（这正是用户遇到的问题）
+  if (!/let feishuMonitorSkipLogged/.test(p)) {
+    console.error('30. 缺少 feishuMonitorSkipLogged —— 跳过的日志会每轮刷屏');
+    process.exit(1);
+  }
+  if (!/feishuMonitorSkipLogged !== fsSkip/.test(p)) {
+    console.error('30. 跳过日志没有去重判断');
+    process.exit(1);
+  }
+  // 不能因为加了跳过就把"能发的时候"也跳过
+  if (!/feishuSendText\(feishuLastChatId, text\)/.test(p)) {
+    console.error('30. 飞书正常发送的调用不见了 —— 配了凭证也推不出去');
+    process.exit(1);
+  }
+
+  console.log('30. 监听跳过判断 OK（飞书没凭证不再每轮白试 + 跳过原因记进诊断 + 日志去重）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
