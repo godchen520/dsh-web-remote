@@ -1277,10 +1277,6 @@ await new Promise((res, rej) => {
     console.error('29. 缺少 weixinDrainInbox 消费者');
     process.exit(1);
   }
-  if (!/function weixinIsFastCommand\(/.test(p)) {
-    console.error('29. 缺少 weixinIsFastCommand —— 无法区分"要不要回执"');
-    process.exit(1);
-  }
 
   // 收消息循环里**绝不能**出现会话处理逻辑（就是它把收消息堵住的）
   const a = p.indexOf('async function weixinPollLoop()');
@@ -1306,14 +1302,28 @@ await new Promise((res, rej) => {
     console.error('29. 收消息循环没有唤起消费者');
     process.exit(1);
   }
-  // 立刻回执必须在收消息循环里（放到消费者里就晚了，失去"马上告知"的意义）
-  if (!/已收到，正在处理/.test(poll)) {
-    console.error('29. 收消息循环里没有立刻回执 —— 用户仍会觉得发出去没反应');
+  // 收消息循环里**不许**发回执：回执统一由 handleWeixinCommand 发一条。
+  // 早先两处都发，用户收到两条：「已收到，正在处理…」+「已收到指令，AI 思考中…」。
+  // 注意只匹配真正的发送调用 —— 注释里提到这段文案（"早先这里也发了一条…"）不算。
+  if (/weixinSendMsg\([^)]*已收到，正在处理/.test(p)) {
+    console.error('29. 又出现了收消息循环里的回执发送「已收到，正在处理…」—— 会和 handleWeixinCommand 的回执撞车，用户收到两条');
     process.exit(1);
   }
-  // 回执不能 await（它自己也会拖慢收消息）
-  if (!/weixinSendMsg\([^)]*已收到，正在处理[\s\S]{0,120}?\.catch\(/.test(poll)) {
-    console.error('29. 立刻回执被 await 了 —— 回执本身会拖慢收消息，应 fire-and-forget（.catch 兜错）');
+  if (!/已收到指令，AI 思考中/.test(p)) {
+    console.error('29. 找不到回执「已收到指令，AI 思考中，请稍等…」—— 长任务会没有任何反馈');
+    process.exit(1);
+  }
+  // 回执必须在进入会话（sendToSession）之前发，否则等于没有反馈
+  const cmdStart = p.indexOf('async function handleWeixinCommand(');
+  const cmdFn = p.slice(cmdStart, p.indexOf('(async function () {', cmdStart));
+  const ackAt = cmdFn.indexOf('已收到指令，AI 思考中');
+  const relayAt = cmdFn.lastIndexOf('sendToSession(');
+  if (ackAt < 0 || relayAt < 0) {
+    console.error('29. handleWeixinCommand 里找不到回执或 sendToSession');
+    process.exit(1);
+  }
+  if (ackAt > relayAt) {
+    console.error('29. 回执发在 sendToSession 之后 —— 那时会话都跑完了，等于没有反馈');
     process.exit(1);
   }
 
@@ -1333,7 +1343,7 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('29. 微信收发解耦 OK（收消息只入队+立刻回执 / 消费者顺序处理 / 收消息循环不再被堵）');
+  console.log('29. 微信收发解耦 OK（收消息只入队 / 消费者顺序处理 / 收消息循环不再被堵 / 回执只有一条）');
 }
 
 proxy.close();
