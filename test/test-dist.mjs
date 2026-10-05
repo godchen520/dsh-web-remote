@@ -1454,6 +1454,54 @@ await new Promise((res, rej) => {
   console.log('31. 侧边栏收起处理 OK（独立收起判定 + 观察器挂 body + 多处触发重算）');
 }
 
+// 32. 局域网地址必须排除链路本地（169.254.0.0/16）
+// 用户截图：局域网页出现两条点不开的链接「局域网 HTTP/HTTPS 169.254.83.107」，
+// 用户说"我没做过这两条"。查下来是 Tailscale 网卡上挂的 169.254.x.x ——
+// isTailscaleRange 只认 100.64.0.0/10，认不出它，于是冒充普通局域网地址漏出。
+// 169.254.x.x 是 APIPA（网卡拿不到 DHCP 时自分配的），永远连不通。
+{
+  const cert = fs.readFileSync(new URL('../lib/cert.mjs', import.meta.url), 'utf8');
+
+  if (!/export function isUsableLanIp\(/.test(cert)) {
+    console.error('32. 缺少 isUsableLanIp —— 链路本地地址会漏进局域网列表');
+    process.exit(1);
+  }
+  if (!/169\.254\./.test(cert)) {
+    console.error('32. isUsableLanIp 没有排除 169.254.0.0/16（链路本地 / APIPA）');
+    process.exit(1);
+  }
+  if (!/ni\.family === 'IPv4' && !ni\.internal && isUsableLanIp\(ni\.address\)/.test(cert)) {
+    console.error('32. lanIPs 没有把 isUsableLanIp 接上 —— 过滤写了也没用');
+    process.exit(1);
+  }
+
+  // 真跑一遍过滤函数，确认行为（不能只做字符串断言）
+  const mod = await import('../lib/cert.mjs');
+  if (typeof mod.isUsableLanIp !== 'function') {
+    console.error('32. isUsableLanIp 没有导出');
+    process.exit(1);
+  }
+  const cases = [
+    ['169.254.83.107', false, 'Tailscale 网卡的链路本地地址（用户截图里那条）'],
+    ['169.254.1.1', false, 'APIPA'],
+    ['0.0.0.0', false, '无效地址'],
+    ['127.0.0.1', false, '回环'],
+    ['192.168.31.111', true, '真实局域网'],
+    ['10.0.0.5', true, '私网 10/8'],
+    ['172.16.3.9', true, '私网 172.16/12'],
+    ['100.103.130.41', true, 'Tailscale CGNAT（由调用方再分流到 P2P 页）'],
+  ];
+  for (const [ip, want, why] of cases) {
+    const got = mod.isUsableLanIp(ip);
+    if (got !== want) {
+      console.error('32. isUsableLanIp(' + ip + ') = ' + got + '，应为 ' + want + '（' + why + '）');
+      process.exit(1);
+    }
+  }
+
+  console.log('32. 局域网地址过滤 OK（169.254 链路本地一律排除 + 真跑 ' + cases.length + ' 例 + 可用地址不误杀）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
