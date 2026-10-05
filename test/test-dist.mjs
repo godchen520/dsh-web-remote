@@ -1402,6 +1402,58 @@ await new Promise((res, rej) => {
   console.log('30. 监听跳过判断 OK（飞书没凭证不再每轮白试 + 跳过原因记进诊断 + 日志去重）');
 }
 
+// 31. 侧边栏收起时「远程」按钮必须隐藏
+// 用户截图：左侧栏收起后按钮被裁切（UI 出错）。
+// 根因两处：
+//   ① updateVisibility 用 findSidebarRoot() 判断收起，而它按「宽度 90~460」筛，
+//      收起后的图标栏只有 48~64px 会被滤掉 → 返回 null → collapsed 恒为 false
+//      → 按钮不隐藏，却待在窄栏里被裁切；
+//   ② MutationObserver 只在 findSidebarRoot() 成功时才挂 —— 加载时若已收起，
+//      之后无论怎么展开/收起都不再重算。
+{
+  const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+
+  if (!/function isSidebarCollapsed\(/.test(p)) {
+    console.error('31. 缺少 isSidebarCollapsed —— 收起判断一旦依赖 findSidebarRoot 就会漏（它按宽度 90~460 筛）');
+    process.exit(1);
+  }
+  const fnAt = p.indexOf('function isSidebarCollapsed(');
+  const fn = p.slice(fnAt, fnAt + 1600);
+  // 必须包含基于宽度的兜底判断（收起时可能没有 collapsed 类）
+  if (!/r\.width > 0 && r\.width < 90/.test(fn)) {
+    console.error('31. isSidebarCollapsed 没有"侧边栏根变窄"这条判断 —— 收起时若不带 collapsed 类就识别不出来');
+    process.exit(1);
+  }
+  if (!/collapsed/i.test(fn)) {
+    console.error('31. isSidebarCollapsed 没有查类名');
+    process.exit(1);
+  }
+  // updateVisibility 必须用它，且不许再回退到 findSidebarRoot
+  const uvAt = p.indexOf('function updateVisibility(');
+  const uv = p.slice(uvAt, uvAt + 400);
+  if (!/isSidebarCollapsed\(\)/.test(uv)) {
+    console.error('31. updateVisibility 没有用 isSidebarCollapsed');
+    process.exit(1);
+  }
+  if (/findSidebarRoot\(\)/.test(uv)) {
+    console.error('31. updateVisibility 又用回 findSidebarRoot 了 —— 它筛掉窄栏，收起时会判成"没收起"');
+    process.exit(1);
+  }
+  // 观察器必须挂在稳定祖先上（subtree），不能挂在可能为 null 的侧边栏根上
+  if (!/obs\.observe\(document\.body, \{ attributes: true, attributeFilter: \['class'\], subtree: true \}\)/.test(p)) {
+    console.error('31. 展开/收起的 MutationObserver 没挂在 document.body(subtree) 上 —— 加载时已收起就永远不再重算');
+    process.exit(1);
+  }
+  // 尺寸同步处也要一起重算可见性，否则被压窄但仍在显示
+  const cnt = (p.match(/updateVisibility\(\)/g) || []).length;
+  if (cnt < 4) {
+    console.error('31. updateVisibility 只在 ' + cnt + ' 处被调用 —— ResizeObserver/定时器/窗口 resize 都应触发，否则收起后不会及时隐藏');
+    process.exit(1);
+  }
+
+  console.log('31. 侧边栏收起处理 OK（独立收起判定 + 观察器挂 body + 多处触发重算）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');

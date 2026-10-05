@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.2.6] - 2026-10-05
+
+### Fixed — 左侧栏收起时「远程」按钮被裁切
+
+用户截图反馈：侧边栏收起后，左下角的「远程」按钮 UI 出错（挤在窄栏里被裁切）。
+
+**根因两处：**
+
+| # | 位置 | 问题 |
+|---|---|---|
+| 1 | `updateVisibility()` | 用 `findSidebarRoot()` 判断是否收起，而它按「宽度 **90~460**」筛侧边栏；收起后的图标栏只有 **48~64px**，直接被滤掉 → 返回 `null` → `collapsed` 恒为 `false` → 按钮**不隐藏**，却待在窄栏里被裁切 |
+| 2 | `MutationObserver` | 只在 `findSidebarRoot()` 成功时才挂上；若**加载时侧边栏已经是收起的**，观察器根本没挂，之后无论怎么展开/收起都不再重算 |
+
+**改动：**
+
+| 位置 | 改动 |
+|---|---|
+| 新增 `isSidebarCollapsed()` | 独立判断，三重条件任一命中即算收起：① 祖先类名带 `collapsed`；② 按钮所在容器比按钮本身还窄；③ 带 `--dsh-sidebar-inline-padding` 的侧边栏根宽度 `< 90`（**放宽下限，把图标栏算进来**）。不再复用 `findSidebarRoot()` |
+| `updateVisibility()` | 改用 `isSidebarCollapsed()` |
+| MutationObserver | 改挂 `document.body` + `subtree` —— 任何位置的展开/收起都能捕获，不再依赖"挂载那一刻能找侧边栏" |
+| 触发时机 | `ResizeObserver`、窗口 `resize`、2 秒兜底定时器都补上 `updateVisibility()`，收起后能及时隐藏 |
+
+**验证**（无头 Edge 复刻侧边栏 DOM，收起时**故意不加 `collapsed` 类**，只把宽度变 56px）：
+
+| 场景 | 侧边栏宽 | 旧判定 | 新判定 |
+|---|---|---|---|
+| 展开 | 260px | false ✓ | false ✓ |
+| 收起（无类名，只变窄） | 56px | **false** ❌ | **true** ✅ |
+
+守卫 #31 已自验能拦住「改回用 `findSidebarRoot()` 判断收起」的回归。
+
 ## [5.2.5] - 2026-10-05
 
 ### Fixed — 通道没配凭证时，监听每轮白试并刷屏报错
