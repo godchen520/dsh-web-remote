@@ -1697,6 +1697,72 @@ await new Promise((res, rej) => {
   console.log('34. 微信积压策略 OK（只监听通知入队 + 带时间戳 + 合并补发 + 过期丢弃且显示）');
 }
 
+// 35. QQ 群主动推送被 QQ 官方拒绝时必须「讲清楚 + 回退私聊」
+//
+// 用户报「QQ群收不到监听」。用真实 AppID/AppSecret 直调 QQ 官方 API 实测：
+//   POST /v2/groups/{group_openid}/messages
+//   -> 400 {"message":"主动消息失败, 无权限","code":40034105}
+//   而 GET /v2/groups/{group_openid}/info -> 200（群名可读）
+// 即：机器人在群里能读消息，但 QQ **不允许它主动发言**。这不是插件 bug。
+//
+// 规则：识别 40034105 / "无权限" 且 scope=group → 详细说明一次 + 回退到私聊目标。
+// 私聊目标必须独立于 lastTarget 持久化（群活跃时 lastTarget 一直是 group）。
+{
+  const q = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  // 通道侧：必须单独记一份私聊目标
+  if (!/lastC2cTarget/.test(q)) {
+    console.error('35. qqbot.mjs 没有单独记私聊目标 —— 群活跃时 lastTarget 一直是 group，被拒后无处回退');
+    process.exit(1);
+  }
+  if (!/getLastC2cTarget\(\)/.test(q)) {
+    console.error('35. qqbot.mjs 没有导出 getLastC2cTarget');
+    process.exit(1);
+  }
+  if (!/setLastC2cTarget\(target\)/.test(q)) {
+    console.error('35. qqbot.mjs 没有 setLastC2cTarget —— 重启后回退目标丢失');
+    process.exit(1);
+  }
+  if (!/if \(scope === 'c2c'\)/.test(q)) {
+    console.error('35. 收到私聊消息时没有记录 c2c 目标');
+    process.exit(1);
+  }
+
+  // 调用方：识别被拒 + 回退
+  if (!/40034105\|无权限/.test(p)) {
+    console.error('35. 没有识别 QQ 的 40034105「无权限」 —— 会被当成普通失败，用户看不懂原因');
+    process.exit(1);
+  }
+  if (!/scope === 'group' && \/40034105\|无权限\//.test(p)) {
+    console.error('35. 判定没有限定 scope=group —— 私聊报同样文字时会被误判并回退');
+    process.exit(1);
+  }
+  if (!/getLastC2cTarget\(\)/.test(p)) {
+    console.error('35. 被拒后没有回退到私聊 —— 通知会直接丢掉');
+    process.exit(1);
+  }
+  if (!/qqbotGroupDeniedLogged/.test(p)) {
+    console.error('35. 没有去重 —— 群推送每轮都被拒时会刷屏');
+    process.exit(1);
+  }
+  if (!/QQ 平台的限制，不是插件问题/.test(p)) {
+    console.error('35. 日志没有说清"这是 QQ 平台限制" —— 用户会以为是插件坏了');
+    process.exit(1);
+  }
+  // 私聊目标必须落盘 + 启动恢复
+  if (!/lastC2cTarget: \{ scope: 'c2c', targetId: t\.targetId \}/.test(p)) {
+    console.error('35. 私聊目标没有落盘');
+    process.exit(1);
+  }
+  if (!/setLastC2cTarget\(c2c\)/.test(p)) {
+    console.error('35. 启动时没有恢复私聊回退目标');
+    process.exit(1);
+  }
+
+  console.log('35. QQ 群推送 OK（识别 40034105 无权限 + 讲清是平台限制 + 回退私聊 + 私聊目标独立持久化）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
