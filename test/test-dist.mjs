@@ -1631,44 +1631,70 @@ await new Promise((res, rej) => {
   console.log('33. 五通道指令统一 OK（微信走共用 cmd* + 未知命令 1 种说法 + /链接 两条提示共用且无参数）');
 }
 
-// 34. 微信积压只允许来自「会话输出通知」，不许再塞时效性问候
+// 34. 微信积压：来源只允许监听通知，且必须「带时间戳 + 合并 + 过期丢弃」
 //
-// 用户看日志报「微信又积压了消息」。查下来每次重启都固定积压 1 条 ——
-// 来源是启动问候「DSH已启动，任务监听中」：它用上次存的旧 token 发，重启后
-// 几乎必然 prepare failed，于是入队，要等用户下次来信才补发。
-// 但「已启动」是时效性问候，几小时后才送到只会让人莫名其妙；而且它让
-// /状态 永远显示「积压 1 条」，用户会以为积压又坏了。
+// 用户看日志报「微信又积压了消息」，并指出我上一版只是让计数器不显示那 1 条
+// （"你这不是骗自己没积压吗"）—— 说得对，那只是消掉了症状。
 //
-// 规则：入队机制只服务「会话输出通知」（晚点送到仍有意义）。
+// 探测结论（实测，非推测）：
+//   · iLink 强制要求有效 context_token：不带 token 与带过期 token 都返回
+//     ret:-2 "prepare failed"；
+//   · 12 个候选免凭据推送端点（pushmessage / sendmsg / notify /
+//     get_context_token / refresh_context_token …）全部 404。
+//   → 用户长时间不说话时，主动推送物理上做不到。积压无法"消除"，只能"不排队"。
+//
+// 所以规则是：入队元素必须带时间戳、补发必须合并成一条、超过 TTL 必须丢弃，
+// 且丢弃数量必须显示在 /状态 里（不许藏）。
 {
   const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
 
-  // 往积压里塞东西的地方只允许有 1 处（监听通知），且必须是入参 text
-  const pushes = [...p.matchAll(/weixinPendingNotify\.push\(([^)]*)\)/g)].map((m) => m[1].trim());
-  if (pushes.length !== 1) {
-    console.error('34. 往积压里塞东西的地方有 ' + pushes.length + ' 处，应只有 1 处（监听通知）：\n    ' + pushes.join('\n    '));
+  // 往积压里塞东西的地方只允许 1 处（监听通知），且必须带时间戳
+  // 注意：不能用 push\(([^)]*)\) 抓内容 —— Date.now() 自带括号会被截断，
+  // 改成直接在源码里断言入队语句的形状。
+  const pushes = (p.match(/weixinPendingNotify\.push\(/g) || []).length;
+  if (pushes !== 1) {
+    console.error('34. 往积压里塞东西的地方有 ' + pushes + ' 处，应只有 1 处（监听通知）');
     process.exit(1);
   }
-  if (pushes[0] !== 'text') {
-    console.error('34. 唯一允许入队的是监听通知正文 text，实际是：' + pushes[0]);
+  if (!/weixinPendingNotify\.push\(\{\s*text:\s*text,\s*at:\s*Date\.now\(\)\s*\}\)/.test(p)) {
+    console.error('34. 入队元素没有时间戳 —— 无法判断过期，队列会无限增长');
     process.exit(1);
   }
   if (/weixinPendingNotify\.push\('DSH已启动/.test(p)) {
     console.error('34. 启动问候又入队了 —— 每次重启都会固定积压 1 条，且几小时后补发毫无意义');
     process.exit(1);
   }
-  // 失败时必须留下日志（不然排查时不知道它没发出去）
   if (!/启动通知发送失败（不入队/.test(p)) {
     console.error('34. 启动通知失败时没有日志 —— 排查时会以为它发出去了');
     process.exit(1);
   }
-  // 监听通知的入队必须保留（这是积压机制存在的唯一理由）
-  if (!/weixinPendingNotify\.push\(text\)/.test(p)) {
-    console.error('34. 监听通知不再入队了 —— token 过期时会丢通知');
+
+  // 必须有 TTL 与丢弃
+  if (!/var PENDING_TTL_MS = \d+ \* 60 \* 1000/.test(p)) {
+    console.error('34. 缺少 PENDING_TTL_MS —— 没有过期策略，积压会无限增长');
+    process.exit(1);
+  }
+  if (!/weixinDroppedNotify \+= dropped/.test(p)) {
+    console.error('34. 丢弃的条数没有被累计 —— 丢弃就成了"悄悄扔掉"');
+    process.exit(1);
+  }
+  if (!/累计丢弃/.test(p)) {
+    console.error('34. /状态 里没有显示"累计丢弃" —— 丢弃必须可见，不许藏');
     process.exit(1);
   }
 
-  console.log('34. 微信积压来源 OK（只允许监听通知入队 + 启动问候失败不入队但有日志）');
+  // 补发必须合并成一条（N 条通知不该变成 N 条消息）
+  if (!/（合并 ' \+ kept\.length \+ ' 条通知）/.test(p)) {
+    console.error('34. 补发没有合并 —— 用户回来后会收到一串消息，那是另一种积压');
+    process.exit(1);
+  }
+  // 不许再逐条 splice + 逐条 send（旧实现，会导致"补到第 k 条失败后全部重排队"）
+  if (/var pendingList = weixinPendingNotify\.splice\(0\)/.test(p)) {
+    console.error('34. 又回到逐条补发的旧实现了 —— 队列无上限、失败会反复卡住');
+    process.exit(1);
+  }
+
+  console.log('34. 微信积压策略 OK（只监听通知入队 + 带时间戳 + 合并补发 + 过期丢弃且显示）');
 }
 
 proxy.close();
