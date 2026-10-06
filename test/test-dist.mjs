@@ -1313,17 +1313,28 @@ await new Promise((res, rej) => {
     console.error('29. 找不到回执「已收到指令，AI 思考中，请稍等…」—— 长任务会没有任何反馈');
     process.exit(1);
   }
-  // 回执必须在进入会话（sendToSession）之前发，否则等于没有反馈
+  // 回执必须在**进入会话之前**发，否则等于没有反馈。
+  // 注意：微信转发已改为共用 cmdRelayToSession（内部才调 sendToSession），
+  // 所以这里找的锚点是 cmdRelayToSession —— 别再去找 sendToSession。
   const cmdStart = p.indexOf('async function handleWeixinCommand(');
   const cmdFn = p.slice(cmdStart, p.indexOf('(async function () {', cmdStart));
   const ackAt = cmdFn.indexOf('已收到指令，AI 思考中');
-  const relayAt = cmdFn.lastIndexOf('sendToSession(');
-  if (ackAt < 0 || relayAt < 0) {
-    console.error('29. handleWeixinCommand 里找不到回执或 sendToSession');
+  const relayAt = cmdFn.indexOf('cmdRelayToSession(');
+  if (ackAt < 0) {
+    console.error('29. handleWeixinCommand 里找不到回执「已收到指令，AI 思考中，请稍等…」');
+    process.exit(1);
+  }
+  if (relayAt < 0) {
+    console.error('29. handleWeixinCommand 没有走共用 cmdRelayToSession —— 转发逻辑又变成微信私有的一份了');
     process.exit(1);
   }
   if (ackAt > relayAt) {
-    console.error('29. 回执发在 sendToSession 之后 —— 那时会话都跑完了，等于没有反馈');
+    console.error('29. 回执发在转发之前才对 —— 现在是发在之后，等于会话都跑完了才提示');
+    process.exit(1);
+  }
+  // 回执不能在"没选会话"时也发：否则用户先收到"思考中"再收到"请先选会话"，自相矛盾
+  if (!/weixinCmdState\.selected\s*&&\s*weixinActiveSend/.test(cmdFn)) {
+    console.error('29. 回执没有先判断"有没有选中会话" —— 没选会话时会先发"思考中"再发"请先选会话"');
     process.exit(1);
   }
 
@@ -1500,6 +1511,93 @@ await new Promise((res, rej) => {
   }
 
   console.log('32. 局域网地址过滤 OK（169.254 链路本地一律排除 + 真跑 ' + cases.length + ' 例 + 可用地址不误杀）');
+}
+
+// 33. 5 个通道的指令实现与提示语必须只有一份
+//
+// 用户反馈「把所有指令的提示列出来，现在好像并没有所有软件统一」。
+// 审计结果：提示语本身大体一致，但**微信自己内联复制了一整套**
+// （/会话列表、/选择 N、/当前会话、/历史内容、/当前模型、/切换模型、/选强度 N），
+// 两套代码已经漂了 —— 内联版缺「请先「/切换模型」选择模型」，且「未知命令」
+// 有 3 种说法（微信/飞书/其它）。
+//
+// 本次把微信改为调用共用 cmd*，并统一措辞。此守卫防止再次分叉。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  const cmdStart = p.indexOf('async function handleWeixinCommand(');
+  const wx = p.slice(cmdStart, p.indexOf('(async function () {', cmdStart));
+  if (cmdStart < 0 || wx.length < 100) {
+    console.error('33. 找不到 handleWeixinCommand');
+    process.exit(1);
+  }
+
+  // ① 微信必须调用全部共用指令
+  const shared = ['cmdSessionList(', 'cmdSelectSession(', 'cmdCurrentSession(', 'cmdHistory(',
+    'cmdCurrentModel(', 'cmdSwitchModel(', 'cmdPickEffort(', 'cmdRelayToSession('];
+  const lack = shared.filter((k) => wx.indexOf(k) < 0);
+  if (lack.length) {
+    console.error('33. 微信没有走共用实现：' + lack.join(', ') + '\n    内联复制会与共用版漂移（已经漂过一次）');
+    process.exit(1);
+  }
+
+  // ② 微信不许再有自己的会话/模型状态变量（那是内联实现的标志）
+  for (const dead of ['weixinSelectedSession', 'weixinModelPick']) {
+    // 只允许出现在"说明为什么删掉"的注释里
+    const re = new RegExp('^(?!\\s*//).*' + dead, 'm');
+    if (re.test(p)) {
+      console.error('33. 又出现了 ' + dead + ' —— 微信的私有指令状态回来了，说明内联实现被恢复');
+      process.exit(1);
+    }
+  }
+  if (!/const weixinCmdState = \{ channel: 'weixin'/.test(p)) {
+    console.error('33. 缺少 weixinCmdState —— 微信应使用与其它 4 通道同款的状态对象');
+    process.exit(1);
+  }
+
+  // ③ 「未知命令」只能有一种说法
+  const unknown = [...p.matchAll(/'(未知命令[^']*|未识别的命令[^']*)'/g)].map((m) => m[1]);
+  const uniqUnknown = [...new Set(unknown)];
+  if (uniqUnknown.length !== 1) {
+    console.error('33. 「未知命令」有 ' + uniqUnknown.length + ' 种说法，应只有 1 种：\n    ' + uniqUnknown.join('\n    '));
+    process.exit(1);
+  }
+  if (uniqUnknown[0] !== '未知命令，发送 /帮助 查看可用命令') {
+    console.error('33. 「未知命令」措辞变了：' + uniqUnknown[0]);
+    process.exit(1);
+  }
+  if (unknown.length !== 5) {
+    console.error('33. 「未知命令」应出现在 5 个通道 handler 里，实际 ' + unknown.length + ' 处');
+    process.exit(1);
+  }
+
+  // ④ /链接 的通用提示必须 5 通道共用；微信专属提示必须单独成一个常量
+  if (!/const LINK_MOBILE_HINT = /.test(p)) {
+    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机缩放提示应共用（原先只有微信有）');
+    process.exit(1);
+  }
+  if (!/const WEIXIN_LINK_FOLLOWUP = /.test(p)) {
+    console.error('33. 缺少 WEIXIN_LINK_FOLLOWUP —— 微信专属提示应抽成常量');
+    process.exit(1);
+  }
+  // 提示文案只允许出现在常量定义那一处（别处一律引用常量）
+  const rawMobile = (p.match(/手机浏览器可根据需要调整页面缩放/g) || []).length;
+  if (rawMobile !== 1) {
+    console.error('33. /链接 的缩放提示出现 ' + rawMobile + ' 次 —— 应只在 LINK_MOBILE_HINT 定义里出现 1 次，别处一律引用常量');
+    process.exit(1);
+  }
+  const rawFollowup = (p.match(/如果用外部浏览器，请直接复制链接/g) || []).length;
+  if (rawFollowup !== 1) {
+    console.error('33. 微信专属链接提示出现 ' + rawFollowup + ' 次 —— 应只在 WEIXIN_LINK_FOLLOWUP 定义里出现 1 次');
+    process.exit(1);
+  }
+  const calls = (p.match(/linkCommandText\(LINK_MOBILE_HINT\)/g) || []).length;
+  if (calls < 10) {
+    console.error('33. linkCommandText(LINK_MOBILE_HINT) 只有 ' + calls + ' 处 —— 5 通道 × 2 条分支应为 10 处');
+    process.exit(1);
+  }
+
+  console.log('33. 五通道指令统一 OK（微信走共用 cmd* + 未知命令 1 种说法 + /链接 提示共用）');
 }
 
 proxy.close();
