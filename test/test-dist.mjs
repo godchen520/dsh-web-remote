@@ -1631,6 +1631,46 @@ await new Promise((res, rej) => {
   console.log('33. 五通道指令统一 OK（微信走共用 cmd* + 未知命令 1 种说法 + /链接 两条提示共用且无参数）');
 }
 
+// 34. 微信积压只允许来自「会话输出通知」，不许再塞时效性问候
+//
+// 用户看日志报「微信又积压了消息」。查下来每次重启都固定积压 1 条 ——
+// 来源是启动问候「DSH已启动，任务监听中」：它用上次存的旧 token 发，重启后
+// 几乎必然 prepare failed，于是入队，要等用户下次来信才补发。
+// 但「已启动」是时效性问候，几小时后才送到只会让人莫名其妙；而且它让
+// /状态 永远显示「积压 1 条」，用户会以为积压又坏了。
+//
+// 规则：入队机制只服务「会话输出通知」（晚点送到仍有意义）。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  // 往积压里塞东西的地方只允许有 1 处（监听通知），且必须是入参 text
+  const pushes = [...p.matchAll(/weixinPendingNotify\.push\(([^)]*)\)/g)].map((m) => m[1].trim());
+  if (pushes.length !== 1) {
+    console.error('34. 往积压里塞东西的地方有 ' + pushes.length + ' 处，应只有 1 处（监听通知）：\n    ' + pushes.join('\n    '));
+    process.exit(1);
+  }
+  if (pushes[0] !== 'text') {
+    console.error('34. 唯一允许入队的是监听通知正文 text，实际是：' + pushes[0]);
+    process.exit(1);
+  }
+  if (/weixinPendingNotify\.push\('DSH已启动/.test(p)) {
+    console.error('34. 启动问候又入队了 —— 每次重启都会固定积压 1 条，且几小时后补发毫无意义');
+    process.exit(1);
+  }
+  // 失败时必须留下日志（不然排查时不知道它没发出去）
+  if (!/启动通知发送失败（不入队/.test(p)) {
+    console.error('34. 启动通知失败时没有日志 —— 排查时会以为它发出去了');
+    process.exit(1);
+  }
+  // 监听通知的入队必须保留（这是积压机制存在的唯一理由）
+  if (!/weixinPendingNotify\.push\(text\)/.test(p)) {
+    console.error('34. 监听通知不再入队了 —— token 过期时会丢通知');
+    process.exit(1);
+  }
+
+  console.log('34. 微信积压来源 OK（只允许监听通知入队 + 启动问候失败不入队但有日志）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
