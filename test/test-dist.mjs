@@ -1697,49 +1697,26 @@ await new Promise((res, rej) => {
   console.log('34. 微信积压策略 OK（只监听通知入队 + 带时间戳 + 合并补发 + 过期丢弃且显示）');
 }
 
-// 35. QQ 群主动推送被 QQ 官方拒绝时必须「讲清楚 + 回退私聊」
+// 35. QQ 群主动推送被 QQ 官方拒绝时：只讲清原因，**不许自作主张回退**
 //
 // 用户报「QQ群收不到监听」。用真实 AppID/AppSecret 直调 QQ 官方 API 实测：
 //   POST /v2/groups/{group_openid}/messages
 //   -> 400 {"message":"主动消息失败, 无权限","code":40034105}
 //   而 GET /v2/groups/{group_openid}/info -> 200（群名可读）
-// 即：机器人在群里能读消息，但 QQ **不允许它主动发言**。这不是插件 bug。
+// 即：机器人在群里能读消息，但 QQ **不允许它主动发言**。这不是插件 bug，改不了。
 //
-// 规则：识别 40034105 / "无权限" 且 scope=group → 详细说明一次 + 回退到私聊目标。
-// 私聊目标必须独立于 lastTarget 持久化（群活跃时 lastTarget 一直是 group）。
+// 我一度加了「被拒后回退到私聊」+「单独持久化私聊目标」，用户明确要求删掉：
+//   「群推送被拒后回退到私聊，单独持久化私聊目标这两给我去了，谁让你做的」
+// —— 那是我自作主张的行为改变（会把该发到群的通知发到私聊）。守卫在此禁止复活。
+//
+// 允许保留的只有：识别 40034105 并把原因讲清楚（去重，不刷屏）。
 {
   const q = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
   const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
 
-  // 通道侧：必须单独记一份私聊目标
-  if (!/lastC2cTarget/.test(q)) {
-    console.error('35. qqbot.mjs 没有单独记私聊目标 —— 群活跃时 lastTarget 一直是 group，被拒后无处回退');
-    process.exit(1);
-  }
-  if (!/getLastC2cTarget\(\)/.test(q)) {
-    console.error('35. qqbot.mjs 没有导出 getLastC2cTarget');
-    process.exit(1);
-  }
-  if (!/setLastC2cTarget\(target\)/.test(q)) {
-    console.error('35. qqbot.mjs 没有 setLastC2cTarget —— 重启后回退目标丢失');
-    process.exit(1);
-  }
-  if (!/if \(scope === 'c2c'\)/.test(q)) {
-    console.error('35. 收到私聊消息时没有记录 c2c 目标');
-    process.exit(1);
-  }
-
-  // 调用方：识别被拒 + 回退
+  // ① 必须识别并把原因讲清楚
   if (!/40034105\|无权限/.test(p)) {
     console.error('35. 没有识别 QQ 的 40034105「无权限」 —— 会被当成普通失败，用户看不懂原因');
-    process.exit(1);
-  }
-  if (!/scope === 'group' && \/40034105\|无权限\//.test(p)) {
-    console.error('35. 判定没有限定 scope=group —— 私聊报同样文字时会被误判并回退');
-    process.exit(1);
-  }
-  if (!/getLastC2cTarget\(\)/.test(p)) {
-    console.error('35. 被拒后没有回退到私聊 —— 通知会直接丢掉');
     process.exit(1);
   }
   if (!/qqbotGroupDeniedLogged/.test(p)) {
@@ -1750,17 +1727,38 @@ await new Promise((res, rej) => {
     console.error('35. 日志没有说清"这是 QQ 平台限制" —— 用户会以为是插件坏了');
     process.exit(1);
   }
-  // 私聊目标必须落盘 + 启动恢复
-  if (!/lastC2cTarget: \{ scope: 'c2c', targetId: t\.targetId \}/.test(p)) {
-    console.error('35. 私聊目标没有落盘');
-    process.exit(1);
-  }
-  if (!/setLastC2cTarget\(c2c\)/.test(p)) {
-    console.error('35. 启动时没有恢复私聊回退目标');
+  // 普通失败仍要如实报错（不能因为加了群特判就把其他错误吞掉）
+  if (!/monitor send failed:/.test(p)) {
+    console.error('35. 非群权限类的失败不再打日志了 —— 其他错误被吞掉');
     process.exit(1);
   }
 
-  console.log('35. QQ 群推送 OK（识别 40034105 无权限 + 讲清是平台限制 + 回退私聊 + 私聊目标独立持久化）');
+  // ② 不许自作主张回退到私聊（用户明确要求删除）
+  const banned = [
+    ['lastC2cTarget', '单独持久化私聊目标'],
+    ['getLastC2cTarget', '取私聊回退目标'],
+    ['setLastC2cTarget', '恢复私聊回退目标'],
+    ['onC2cTarget', '私聊目标落盘钩子'],
+  ];
+  for (const [name, what] of banned) {
+    if (q.indexOf(name) >= 0 || p.indexOf(name) >= 0) {
+      console.error('35. ' + what + '（' + name + '）又回来了 —— 用户明确要求删掉，' +
+        '不能把本该发到群的通知偷偷改发到私聊');
+      process.exit(1);
+    }
+  }
+  // 通道不许再往"私聊目标"上写东西
+  if (/lastC2c|lastC2cAt/.test(q)) {
+    console.error('35. qqbot.mjs 又在记私聊目标了 —— 已按要求删除');
+    process.exit(1);
+  }
+  // 日志里也不许再提"回退私聊"（那是被删掉的行为，留着会误导）
+  if (/回退私聊|回退到私聊/.test(p)) {
+    console.error('35. 日志/注释里还写着"回退私聊" —— 该行为已删除，留着会误导');
+    process.exit(1);
+  }
+
+  console.log('35. QQ 群推送 OK（识别 40034105 并讲清是平台限制 + 无去重刷屏 + 禁止私聊回退复活）');
 }
 
 proxy.close();
