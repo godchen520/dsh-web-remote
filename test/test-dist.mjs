@@ -927,7 +927,8 @@ await new Promise((res, rej) => {
     console.error('25. index.mjs 没把未打通的原因拼进文案（用户要能看出是"手机端没开"）');
     process.exit(1);
   }
-  if (idx.indexOf('function linkCommandText(prefix)') < 0 || idx.indexOf('function p2pStateNow()') < 0) {
+  // 无参数：5 个通道的提示与正文完全相同，不需要各传各的
+  if (idx.indexOf('function linkCommandText()') < 0 || idx.indexOf('function p2pStateNow()') < 0) {
     console.error('25. index.mjs 缺少 linkCommandText / p2pStateNow 共用实现');
     process.exit(1);
   }
@@ -936,11 +937,25 @@ await new Promise((res, rej) => {
     console.error('25. 只有 ' + returns + ' 处返回共用文案 —— 5 个通道（微信/飞书/纸飞机/QQ官方/钉钉）都要用');
     process.exit(1);
   }
+  // 两条提示都必须写进正文，5 个通道才会一字不差
+  if (!/const LINK_MOBILE_HINT = /.test(idx) || !/const LINK_BROWSER_HINT = /.test(idx)) {
+    console.error('25. 缺少 LINK_MOBILE_HINT / LINK_BROWSER_HINT —— 链接提示没有统一');
+    process.exit(1);
+  }
+  if (!/LINK_MOBILE_HINT \+ '\\n' \+ LINK_BROWSER_HINT/.test(idx)) {
+    console.error('25. 两条链接提示没有一起并进正文 —— 各通道拿到的文字会不一样');
+    process.exit(1);
+  }
+  // 不允许再有"单独补发第二条提示"的机制：那正是"微信 2 条、其它 1 条"的由来
+  if (/weixinFollowup/.test(idx.replace(/^\s*\/\/.*$/gm, ''))) {
+    console.error('25. weixinFollowup 又回来了 —— 微信会多发一条提示，与其它通道不一致');
+    process.exit(1);
+  }
   if (idx.indexOf("return '公网链接") >= 0) {
     console.error('25. 还有通道在用旧的「只发公网链接」写法');
     process.exit(1);
   }
-  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"对端不在线" + ' + returns + ' 处共用文案）');
+  console.log('25. /链接 双链接 OK（' + cases.length + ' 例真值表含"对端不在线" + ' + returns + ' 处共用文案 + 两条提示统一）');
 }
 
 // 26. 二维码：必须**本地生成**（不许再有外部图床），且真能解码
@@ -1576,28 +1591,44 @@ await new Promise((res, rej) => {
     console.error('33. 缺少 LINK_MOBILE_HINT —— 手机缩放提示应共用（原先只有微信有）');
     process.exit(1);
   }
-  if (!/const WEIXIN_LINK_FOLLOWUP = /.test(p)) {
-    console.error('33. 缺少 WEIXIN_LINK_FOLLOWUP —— 微信专属提示应抽成常量');
+  // 两条链接提示都必须存在，且**都并进正文**由 5 通道共用
+  if (!/const LINK_MOBILE_HINT = /.test(p)) {
+    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机缩放提示应共用（原先只有微信有）');
+    process.exit(1);
+  }
+  if (!/const LINK_BROWSER_HINT = /.test(p)) {
+    console.error('33. 缺少 LINK_BROWSER_HINT —— 内置浏览器提示应共用（原先只有微信单独发一条）');
     process.exit(1);
   }
   // 提示文案只允许出现在常量定义那一处（别处一律引用常量）
   const rawMobile = (p.match(/手机浏览器可根据需要调整页面缩放/g) || []).length;
   if (rawMobile !== 1) {
-    console.error('33. /链接 的缩放提示出现 ' + rawMobile + ' 次 —— 应只在 LINK_MOBILE_HINT 定义里出现 1 次，别处一律引用常量');
+    console.error('33. 缩放提示出现 ' + rawMobile + ' 次 —— 应只在 LINK_MOBILE_HINT 定义里出现 1 次');
     process.exit(1);
   }
-  const rawFollowup = (p.match(/如果用外部浏览器，请直接复制链接/g) || []).length;
-  if (rawFollowup !== 1) {
-    console.error('33. 微信专属链接提示出现 ' + rawFollowup + ' 次 —— 应只在 WEIXIN_LINK_FOLLOWUP 定义里出现 1 次');
+  const rawBrowser = (p.match(/内置浏览器打开可能丢失验证信息/g) || []).length;
+  if (rawBrowser !== 1) {
+    console.error('33. 内置浏览器提示出现 ' + rawBrowser + ' 次 —— 应只在 LINK_BROWSER_HINT 定义里出现 1 次');
     process.exit(1);
   }
-  const calls = (p.match(/linkCommandText\(LINK_MOBILE_HINT\)/g) || []).length;
+  // 5 通道 × 2 条分支 = 10 处，且都必须是**无参数**调用（参数一多就会各传各的、再次分叉）
+  const calls = (p.match(/return linkCommandText\(\)/g) || []).length;
   if (calls < 10) {
-    console.error('33. linkCommandText(LINK_MOBILE_HINT) 只有 ' + calls + ' 处 —— 5 通道 × 2 条分支应为 10 处');
+    console.error('33. return linkCommandText() 只有 ' + calls + ' 处 —— 5 通道 × 2 条分支应为 10 处');
+    process.exit(1);
+  }
+  if (/linkCommandText\([^)]/.test(p)) {
+    console.error('33. linkCommandText 又被传了参数 —— 5 通道应共用同一份文案，不需要各传各的');
+    process.exit(1);
+  }
+  // 不许再有"单独补发第二条提示"的机制（那正是"微信 2 条、其它 1 条"的由来）
+  const noComments = p.replace(/^\s*\/\/.*$/gm, '');
+  if (/weixinFollowup/.test(noComments)) {
+    console.error('33. weixinFollowup 又回来了 —— 微信会多发一条提示，与其它通道不一致');
     process.exit(1);
   }
 
-  console.log('33. 五通道指令统一 OK（微信走共用 cmd* + 未知命令 1 种说法 + /链接 提示共用）');
+  console.log('33. 五通道指令统一 OK（微信走共用 cmd* + 未知命令 1 种说法 + /链接 两条提示共用且无参数）');
 }
 
 proxy.close();
