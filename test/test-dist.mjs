@@ -3,6 +3,8 @@
 import http from 'node:http';
 import https from 'node:https';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createHash } from 'node:crypto';
 // 注意：lib/index.mjs 是 composition 插件，只导出 name/inject/apply；
 // 这些可测工具函数在各自的模块里。
@@ -1774,6 +1776,101 @@ await new Promise((res, rej) => {
   }
 
   console.log('35. QQ 群推送 OK（识别 40034105 + 指向正确的开关「机器人主动在群聊内发言」+ 禁止私聊回退复活）');
+}
+
+// 36. 监听通知发图：两路信号都要扫 + 必须真跑提取逻辑
+//
+// 需求（用户：「做1.2」）：方案 C（结构化 image block + 文本里的图片引用，两路都扫），
+// 且只做 QQ（微信 iLink 支不支持发图未测）。
+//
+// 已实测 QQ 侧可行（2026-10-07）：
+//   上传 POST /v2/groups/{openid}/files（file_type=1，base64 或 url）-> 200 file_info
+//   发送 POST /v2/groups/{openid}/messages（msg_type=7 + media.file_info，不带 msg_id）-> 200
+//   本地文件、腾讯 CDN、公共图床三种来源都成功，**不需要额外权限**。
+//
+// 规则：extractMessageImages 必须真跑（不是字符串断言），覆盖两路信号与误报。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const q = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+
+  // ① 通道必须导出 sendImage（包 SDK 的 sendImage）
+  if (!/async sendImage\(target, source, content\)/.test(q)) {
+    console.error('36. qqbot.mjs 没有 sendImage —— 监听发图没有底层能力');
+    process.exit(1);
+  }
+  if (!/bot\.sendImage\(/.test(q)) {
+    console.error('36. sendImage 没有调用 SDK 的 bot.sendImage');
+    process.exit(1);
+  }
+  // ② 提取函数必须在，且两路信号都扫
+  if (!/function extractMessageImages\(msg\)/.test(p)) {
+    console.error('36. 缺少 extractMessageImages');
+    process.exit(1);
+  }
+  if (!/b\.type !== 'image'/.test(p)) {
+    console.error('36. 没有扫结构化的 image block（方案 C 的第一路）');
+    process.exit(1);
+  }
+  if (!/!\[\[^\\\]\]\*\\\]\(/.test(p) && !/!\\\[/.test(p)) {
+    console.error('36. 没有扫文本里的 markdown 图片（方案 C 的第二路）');
+    process.exit(1);
+  }
+  // ③ 必须真的有上限（不加会刷屏）
+  if (!/var MAX_MONITOR_IMAGES = \d+/.test(p)) {
+    console.error('36. 没有图片张数上限 —— 一轮出现几十张图就会刷屏');
+    process.exit(1);
+  }
+  // ④ 只有图没有字的一轮也要能通知
+  if (!/parts\.length > 0 \|\| images\.length > 0/.test(p)) {
+    console.error('36. 只产生图片、没有文字的一轮不会通知 —— 图发不出去');
+    process.exit(1);
+  }
+  // ⑤ 只对 QQ 发图（微信/飞书/钉钉/Telegram 不接，未验证）
+  const imgSends = (p.match(/\.sendImage\(/g) || []).length;
+  if (imgSends !== 1) {
+    console.error('36. sendImage 调用点有 ' + imgSends + ' 处 —— 当前只做 QQ，应为 1 处');
+    process.exit(1);
+  }
+  const qqBlock = p.indexOf('if (qqbotMonitorMode');
+  const imgAt = p.indexOf('.sendImage(');
+  if (imgAt < qqBlock) {
+    console.error('36. sendImage 不在 QQ 分支里');
+    process.exit(1);
+  }
+
+  // ⑥ 真跑提取逻辑（不是字符串断言）
+  const start = p.indexOf('var MAX_MONITOR_IMAGES');
+  const end = p.indexOf('function startMonitor()');
+  if (start < 0 || end < 0) {
+    console.error('36. 抠不出 extractMessageImages 的代码段');
+    process.exit(1);
+  }
+  const fn = new Function('fs', 'Buffer', p.slice(start, end) + '\nreturn extractMessageImages;')(fs, Buffer);
+
+  const tmpImg = path.join(os.tmpdir(), 'guard36-img.png');
+  fs.writeFileSync(tmpImg, Buffer.from('89504e470d0a1a0a', 'hex'));
+  const cases = [
+    ['image block url', { content: [{ type: 'image', source: { url: 'https://a.com/x.png' } }] }, 1],
+    ['image block base64', { content: [{ type: 'image', source: { data: Buffer.from('abc').toString('base64') } }] }, 1],
+    ['markdown 网络图', { content: [{ type: 'text', text: '![a](https://b.com/y.jpg)' }] }, 1],
+    ['markdown 本地图', { content: [{ type: 'text', text: '![a](' + tmpImg.replace(/\\/g, '/') + ')' }] }, 1],
+    ['裸网络图链接', { content: [{ type: 'text', text: '见 https://c.com/z.webp' }] }, 1],
+    ['不存在的本地路径', { content: [{ type: 'text', text: '![](C:/nope/none.png)' }] }, 0],
+    ['普通网页链接', { content: [{ type: 'text', text: 'https://d.com/page.html' }] }, 0],
+    ['纯文本', { content: [{ type: 'text', text: '没有图片' }] }, 0],
+    ['同 URL 去重', { content: [{ type: 'text', text: 'https://e.com/a.png https://e.com/a.png' }] }, 1],
+    ['上限生效', { content: [{ type: 'text', text: 'https://f.com/1.png https://f.com/2.png https://f.com/3.png https://f.com/4.png' }] }, 3],
+  ];
+  for (const [label, msg, want] of cases) {
+    const got = fn(msg);
+    if (got.length !== want) {
+      console.error('36. 提取用例「' + label + '」期望 ' + want + ' 张，实得 ' + got.length + ' 张');
+      process.exit(1);
+    }
+  }
+  fs.unlinkSync(tmpImg);
+
+  console.log('36. 监听发图 OK（两路信号都扫 + 真跑 ' + cases.length + ' 例 + 上限生效 + 只对 QQ 生效）');
 }
 
 proxy.close();

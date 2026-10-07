@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.4.0] - 2026-10-07
+
+### Added — 监听通知可以带图片发到 QQ（方案 C + 只做 QQ）
+
+用户先做了两个实测（我直接用 API 打，不是猜）：
+
+| 测试 | 结果 |
+|---|---|
+| 监听能否发图 | ❌ 原实现不发 —— `index.mjs` 只挑 `type === 'text'` 的块；`qqbot.mjs` 只有 `bot.sendText`，没有发图能力 |
+| 监听通道本身通不通 | ✅ **通了** —— 文本成功进群（验证了「机器人主动在群聊内发言」那个授权修复） |
+
+**可行性验证（QQ 侧，全部 200 成功）：**
+
+| 图片方式 | 上传 `POST /v2/groups/{openid}/files` | 发送 `msg_type=7` + `media.file_info`（**不带 msg_id = 主动消息**） |
+|---|---|---|
+| 本地文件（base64） | ✅ 拿到 `file_info` | ✅ 200 |
+| 网络 URL（腾讯 CDN） | ✅ | ✅ 200 |
+| 网络 URL（公共图床） | ✅ | ✅ 200 |
+
+**结论：主动消息可带图，不需要任何额外权限。** SDK 已封装 `sendImage(target, { localPath | url | buffer })`（上传 + 发送一步到位）。
+
+**改动：**
+
+| 位置 | 改动 |
+|---|---|
+| `lib/qqbot.mjs` | 新增 `sendImage(target, source, content)` —— 包一层 SDK 的 `bot.sendImage` |
+| `lib/index.mjs` | 新增 `extractMessageImages(msg)`：**两路信号都扫**（用户明确要求）<br>① 结构化 `type:'image'` 块（url / base64 / 本地路径，防御性兼容多种形状）<br>② 文本里的图片引用：markdown `![](x)` / 裸 http(s) 图片链接 / 本地图片路径 |
+| `lib/index.mjs` | 监听判定从「有文本才通知」改为「**有文本或有图片**就通知」—— 只出图不出字的一轮也能推出去 |
+| `lib/index.mjs` | QQ 分支：文本发完后再逐张发图（串行，避免并发上传互相挤），并把「图片 N 张」写进 `monitorLastSendResult` |
+| 安全下限 | `MAX_MONITOR_IMAGES = 3`。不加限制的话一轮出现几十张图就会刷屏 —— 这是正确性下限（同文本 1900 字符截断），不是可选功能 |
+| 范围 | **只对 QQ 生效**（`sendImage` 调用点有守卫断言恰好 1 处）。微信 iLink 支不支持发图**未测**，要单独验证 |
+
+**只认真实存在的资源**：本地路径必须 `fs.existsSync` 通过才发，网络只认 http(s)，避免把不存在的路径丢给 QQ 报错。
+
+**测试：** 新增守卫 #36 —— 通道必须导出 `sendImage` 且调用 SDK；提取函数必须两路都扫；必须有张数上限；
+只出图的一轮必须能通知；`sendImage` 调用点必须恰好 1 处且在 QQ 分支里；
+并**真跑** 10 个提取用例（image block url/base64、markdown 网络图/本地图、裸链接、不存在的路径不误收、
+普通网页链接不误收、纯文本不误收、同 URL 去重、上限生效）。
+
+守卫 #36 已自验：把判定改回「只认文本」会报「只产生图片、没有文字的一轮不会通知」。
+
+**踩坑记录：** `extractMessageImages` 内部函数最初叫 `push`，触发了测试 #9 的作用域守卫误报
+（守卫把名为 `push` 的声明当变量，进而把文件前面所有 `Array.prototype.push` 调用判成越界使用）。
+改名为 `addImg` 解决，并在代码里留了注释免得后人再踩。
+
 ## [5.3.6] - 2026-10-07
 
 ### Fixed — QQ 群收不到监听：**根因查明**（授权开关在 QQ 客户端，不在开放平台）
