@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.2] - 2026-10-07
+
+### Fixed — 真正的根因：我只更新了 web profile，桌面版走的是 desktop profile
+
+5.6.0 / 5.6.1 的改动**从来没进过桌面版**。DSH 桌面版加载的是 `profiles/desktop/node_modules/dsh-web-remote`，它的 pin 一直停在 `16d5457`（5.5.1）。我此前的验证全在 `dsh web` 那个实例上做（`/remote/info` 报 5.6.x、页面里也确实有新代码），而那个实例和桌面版是两个 profile —— 所以桌面版/手机自然一点变化都没有。
+
+**同时修掉一个把我带偏一轮的诊断缺陷：** 5.6.1 的 `railReport` **只上报第一次调用**，而第一次发生在页面初始化、React 还没渲染出 AppFrame 的时候 —— 于是它永远报 `frameFound: false`。我拿这个当结论，误判成"DSH 换了布局、`data-sidebar-collapsed` 不存在"。实际上那个 bundle 只是 apps/web 外壳，DSH 客户端包是运行时另拉的，**该结论证据不足，已收回**。
+
+**修法：**
+
+- `railReport` 改成**等找到 frame 再报**（最多等 6 次 ≈ 12 秒）；12 秒后无论如何强制上报一次；
+- 找不到 frame 时附 **DOM 取证**（`railProbe`）：`[data-sidebar-collapsed]` 命中数、页面上带内联 `grid-template-columns` 的元素、以及"贴左 / 窄 / 高"的竖栏候选及其祖先链 —— 即使选择器不对，也能一眼看出该挂在哪个元素上；
+- `web` 与 `desktop` 两个 profile 的 pin 一起更新。
+
+**守卫 #39 扩充**：断言上报必须等渲染完（`railDebugTries`）、有强制兜底（`railReport(true)`）、且带 DOM 取证（`railProbe` / `attrCount`）。
+
 ## [5.6.1] - 2026-10-07
 
 ### Fixed — 5.6.0 的窄屏去竖栏在手机上静默不生效

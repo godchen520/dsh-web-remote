@@ -2247,7 +2247,19 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 服务端默认开）');
+  // ⑪ 上报必须等渲染完再发，并且带 DOM 取证
+  //    教训：最早那次 syncMobileRail 发生在页面初始化，AppFrame 还没渲染出来，
+  //    只报第一次的话永远是 frameFound=false —— 拿它当结论会被带偏一整轮。
+  if (!/railDebugTries/.test(p) || !/railReport\(true\)/.test(p)) {
+    console.error('39. 上报只发第一次就会永远报 frameFound=false —— 必须等渲染完｜并有强制兜底');
+    process.exit(1);
+  }
+  if (!/function railProbe\(/.test(p) || !/attrCount/.test(p)) {
+    console.error('39. 找不到 frame 时没有 DOM 取证（railProbe）—— 又只能靠猜');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 服务端默认开 + 等渲染后带取证的回报）');
 }
 
 proxy.close();
