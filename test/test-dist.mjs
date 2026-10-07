@@ -2188,7 +2188,9 @@ await new Promise((res, rej) => {
 
   // ⑤ 幂等：先打标记再写样式，否则 observer 回环
   const markAt = p.indexOf("setAttribute('data-webrm-rail', '1')");
-  const writeAt = p.indexOf('frame.style.gridTemplateColumns = tpl.replace(');
+  // 主路径是 indexOf('minmax(') 切分后的 '0px ' 拼接；正则那条是兜底分支，位置更靠后。
+  // 这里断言主路径即可 —— 改写成别的写法时也要保证"先打标记后写样式"。
+  const writeAt = p.indexOf("frame.style.gridTemplateColumns = '0px ' + tpl0.slice(cut)");
   if (markAt < 0 || writeAt < 0 || markAt > writeAt) {
     console.error('39. data-webrm-rail 标记没有先于样式写入 —— 观察器会陷入回环');
     process.exit(1);
