@@ -2276,7 +2276,28 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证）');
+  // ⑫ 把手必须钉在原生开关的同一高度
+  //    用户反馈："展开和收起的位置差得太远了" —— 收起按钮在左上、把手在垂直居中，
+  //    拇指要跨大半个屏幕。锚点要换算成视口百分比，避开 html{zoom:80%} 的坐标问题。
+  if (!/railAnchorPct/.test(p) || !/function rememberRailAnchor\(/.test(p)) {
+    console.error('39. 把手没有锚到原生开关的高度 —— 展开/收起位置又会离得很远');
+    process.exit(1);
+  }
+  if (!/window\.innerHeight\) \* 100/.test(p)) {
+    console.error('39. 锚点没有换算成视口百分比 —— 用 px 会被 html{zoom:80%} 缩放带偏');
+    process.exit(1);
+  }
+  if (!/btn\.style\.top = \(railAnchorPct === null \? 50 : railAnchorPct\) \+ '%'/.test(p)) {
+    console.error('39. 把手没有应用锚点（应写入 top: <pct>%，量不到时退回 50%）');
+    process.exit(1);
+  }
+  // 展开态也要认得出按钮：只有收起态才叫「打开侧边栏」，量高度得靠「收起侧边栏」
+  if (!/收起侧边栏/.test(p) || !/collapse sidebar/.test(p)) {
+    console.error('39. 找原生按钮只认「打开侧边栏」—— 展开态量不到位置，锚点永远学不到');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证 + 把手锚定原生开关高度）');
 }
 
 proxy.close();

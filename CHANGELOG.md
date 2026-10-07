@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.4] - 2026-10-07
+
+### Fixed — 展开把手与原生收起按钮离得太远
+
+5.6.3 的取证报告终于给出了铁证（手机 `w=360`、`coarse=True`）：
+
+```json
+{ "phase": "first", "frameFound": true, "collapsed": "true",
+  "tpl0": "56px minmax(0px, 1fr) minmax(0px, 0px)",
+  "cut": 5, "wrote": true,
+  "tpl1": "0px minmax(0px, 1fr) minmax(0px, 0px)" }
+```
+
+`cut=5` 说明 `indexOf('minmax(')` 切分成功，`wrote=true` 且 `tpl1` 已是 `0px` —— **竖栏确实被去掉了，不是被 React 还原**。功能到此完成。
+
+**剩下的纯 UX 问题**（用户反馈）："展开和收起的位置差得太远了"。DSH 原生的收起按钮在**左上角**，而我把手一直固定在**垂直居中**，拇指要跨大半个屏幕。
+
+**本版改动：**
+
+- 把手改为**钉在原生开关的同一高度**：每轮同步时量一次原生开关的中心位置，换算成**视口百分比**（百分比不受 `html{zoom:80%}` 缩放影响，用 px 会被带偏），写入 `top: <pct>%`；量不到时退回 50%。
+- `findNativeToggle()`：同时认「打开侧边栏」和「收起侧边栏」两种 aria-label（中英各一）。只有展开态才叫「收起侧边栏」，不认它就永远量不到锚点。
+- `findNativeOpenBtn()` 保留，只用于点击展开。
+
+**守卫 #39 扩充**：断言存在锚点逻辑、换算用的是百分比、把手确实应用了锚点、且两种 aria-label 都认。
+
 ## [5.6.3] - 2026-10-07
 
 ### Fixed — 钩子是对的，但"写进去的 0px 没留下"
