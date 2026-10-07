@@ -2247,19 +2247,34 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  // ⑪ 上报必须等渲染完再发，并且带 DOM 取证
-  //    教训：最早那次 syncMobileRail 发生在页面初始化，AppFrame 还没渲染出来，
-  //    只报第一次的话永远是 frameFound=false —— 拿它当结论会被带偏一整轮。
-  if (!/railDebugTries/.test(p) || !/railReport\(true\)/.test(p)) {
-    console.error('39. 上报只发第一次就会永远报 frameFound=false —— 必须等渲染完｜并有强制兜底');
+  // ⑪ 上报必须等渲染完再发，并且带 DOM 取证 + 改写前后对比
+  //    教训一：最早那次 syncMobileRail 发生在页面初始化，AppFrame 还没渲染出来，
+  //            只报第一次的话永远是 frameFound=false —— 拿它当结论会被带偏一整轮。
+  //    教训二：光有 frameFound 还不够，必须能区分"根本没写"和"写了又被还原"。
+  if (!/railReports/.test(p) || !/railReport\(true\)/.test(p)) {
+    console.error('39. 上报只发第一次就会永远报 frameFound=false —— 必须等渲染完｜并有稳态兜底');
     process.exit(1);
   }
   if (!/function railProbe\(/.test(p) || !/attrCount/.test(p)) {
     console.error('39. 找不到 frame 时没有 DOM 取证（railProbe）—— 又只能靠猜');
     process.exit(1);
   }
+  if (!/wrote:\s*wrote/.test(p) || !/tpl1:\s*String\(/.test(p)) {
+    console.error('39. 上报里没有「改写前 / 改写后 / 是否写入」—— 分不清是没写还是被 React 还原了');
+    process.exit(1);
+  }
+  // 切第一刀用 indexOf('minmax(')，而不是按空格切（minmax 里带逗号和空格，切了会坏）
+  if (!/indexOf\('minmax\('\)/.test(p)) {
+    console.error("39. 轨道改写没有用 indexOf('minmax(') 定位第一条轨道 —— 正则/空格切法在真实模板上会失手");
+    process.exit(1);
+  }
+  // 服务端要留多条，才能对比「首次」与「稳态」
+  if (!/railDebug = \(railDebug \|\| \[\]\)\.concat\(\[entry\]\)/.test(idx)) {
+    console.error('39. 服务端 railDebug 只存最后一条 —— 没法对比首次与稳态');
+    process.exit(1);
+  }
 
-  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 服务端默认开 + 等渲染后带取证的回报）');
+  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证）');
 }
 
 proxy.close();

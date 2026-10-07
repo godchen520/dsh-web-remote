@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.3] - 2026-10-07
+
+### Fixed — 钩子是对的，但"写进去的 0px 没留下"
+
+5.6.2 的诊断终于报回了**决定性的数据**（这次是桌面版实例，`19387`）：
+
+```json
+{ "w": 575, "narrow": true, "pref": true,
+  "frameFound": true,                                     // frame 找到了
+  "collapsed": "true",                                    // data-sidebar-collapsed 存在且为 true
+  "tplBefore": "56px minmax(0px, 1fr) minmax(0px, 0px)"    // 模板完全符合预期
+}
+```
+
+`want = pref && narrow && collapsed` **三个条件全部成立**，改写分支必然执行了。但 `tplBefore` 是**改写之后**才读的，读回来却还是 `56px` —— 说明写进去的值没留下。此前几轮一直在错误的方向上找原因（先怀疑 profile、再怀疑选择器），实际是这个。
+
+**本版改动：**
+
+- 轨道改写改用 `indexOf('minmax(')` 切第一刀：第一个 `minmax` 之前那段就是第一条轨道，整段换成 `0px`，后两条原样保留。（按空格切会切坏 —— `minmax(0px, 1fr)` 里带逗号和空格；正则作为兜底保留。）
+- 上报里加入**改写前 / 改写后 / 是否写入**三件套（`tpl0` / `tpl1` / `wrote` / `cut`），用来区分"根本没写"和"写了又被还原"。
+- 一次页面加载发**两条**上报：`phase: "first"`（首次找到 frame）与 `phase: "steady"`（8 秒后）。两条一对比就知道是不是 React 把内联样式写回去了。服务端保留最近 6 条。
+
+**守卫 #39 扩充**：断言存在 `indexOf('minmax(')` 定位、有 `wrote` / `tpl1` 取证、且服务端保留多条。
+
 ## [5.6.2] - 2026-10-07
 
 ### Fixed — 真正的根因：我只更新了 web profile，桌面版走的是 desktop profile
