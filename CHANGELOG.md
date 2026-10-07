@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.5] - 2026-10-07
+
+### Changed — 展开把手的图标改成与原生收起按钮一致
+
+用户要求："这个按钮能不能改成收起的按钮一样的图标"。
+
+DSH 原生切换按钮用的是 `IconPanelLeftOutlineRegular`（"面板左"：带左侧分隔线的圆角矩形），而我把手原来是自己画的**右箭头小三角**（`polyline 9,6 15,12 9,18`），确实不是一个东西。
+
+**做法不是照着画一个"看起来像"的，而是运行时照抄它的 svg：**
+
+```js
+var icon = b.querySelector('svg[class*="panelIcon"]') || b.querySelector('svg');
+railIconMarkup = icon.outerHTML;   // 抄到就不换了
+```
+
+这样 DSH 换图标时我们也跟着换，不需要跟着改代码。
+
+**关键细节：只在展开态抄。** 收起态那个按钮里除了 panelIcon 还混着一个品牌标记（`railMark` / 鲸鱼 logo，`!wide && !windowsTitlebar` 时才渲染），而且那时的图标是"打开"语义 —— 抄错了就不是用户要的那个。类名是哈希的（`hHd-Xa_panelIcon`），所以按**后缀嗅探**而不是写死全名。
+
+默认图标也换成同族的"面板左"（带 `rect` + 左侧 `line` 的圆角矩形），这样即使还没量到原生按钮，观感也一致。
+
+**守卫 #39 扩充**：断言存在 `learnRailIcon`、只在展开态抄、优先认 `panelIcon`、且默认图标不是那个右箭头小三角。
+
 ## [5.6.4] - 2026-10-07
 
 ### Fixed — 展开把手与原生收起按钮离得太远

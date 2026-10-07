@@ -2297,7 +2297,32 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证 + 把手锚定原生开关高度）');
+  // ⑬ 把手的图标要和原生收起按钮一致（用户要求）
+  //    DSH 用的是 IconPanelLeftOutlineRegular。最好的做法是运行时照抄它的 svg，
+  //    而不是自己画一个"看起来像"的 —— DSH 换图标时我们也跟着换。
+  if (!/function learnRailIcon\(/.test(p) || !/railIconMarkup/.test(p)) {
+    console.error('39. 没有从原生按钮抄图标 —— 自己画的迟早和 DSH 不一致');
+    process.exit(1);
+  }
+  if (!/if \(railIconMarkup \|\| collapsed\) return;/.test(p)) {
+    console.error('39. 收起态也去抄图标了 —— 那时按钮里混着品牌标记(railMark)，抄到的不是收起图标');
+    process.exit(1);
+  }
+  if (!/svg\[class\*="panelIcon"\]/.test(p)) {
+    console.error('39. 抄图标没有优先认 panelIcon（类名是哈希的，按后缀嗅探才稳）');
+    process.exit(1);
+  }
+  // 默认图标也应该是"面板左"同族，而不是之前那个右箭头小三角
+  if (/polyline points="9 6 15 12 9 18"/.test(p)) {
+    console.error('39. 默认图标还是那个右箭头小三角 —— 与原生收起按钮不是一个东西');
+    process.exit(1);
+  }
+  if (!/rect x="3" y="4" width="18" height="16"/.test(p)) {
+    console.error('39. 默认图标不是"面板左"同族（应为带左侧分隔线的圆角矩形）');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证 + 把手锚定原生开关高度与图标）');
 }
 
 proxy.close();
