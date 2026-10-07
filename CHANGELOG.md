@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.5.0] - 2026-10-07
+
+### Changed — QQ 收到的图片直接在对话里显示，不再是一串路径
+
+用户要求：「能不能显示图片而不是路径」。
+
+5.4.1 用的是「简单法」（把本地路径写进转发文本，AI 用 `read_image` 自己读）。
+能用，但对话里看到的是一行 `[图片] C:\...\png`。现在改成**真正的内容块**。
+
+**先查清了 DSH 期望的形状**（`@deepseek-ai/dsh-attachment` 与 `dsh-api-session-controller`）：
+
+```ts
+export type PromptContentPart = {
+    readonly type: 'text'; readonly text: string;
+} | {
+    readonly type: 'image';
+    readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    readonly data: string;    // base64
+    readonly name?: string;
+};
+```
+
+**改动：**
+
+| 位置 | 改动 |
+|---|---|
+| `lib/index.mjs` | `sendToSession`：`content` 现在**既接受字符串（原有 5 个通道都这么传）也接受内容块数组** —— `Array.isArray(content) ? content : [{type:'text',text:content}]`，**向后兼容**，老调用点一行不用改 |
+| `lib/index.mjs` | 新增 `sniffImageMediaType(buf)`：由**文件头魔数**判定真实格式（PNG/JPEG/GIF/WebP），返回 DSH 认的 mediaType 或 null |
+| `lib/index.mjs` | `downloadQQImageAttachments`：先落 `.part` → 读字节嗅探 → 按真实格式改名 → 返回 `{ mediaType, data(base64), name, localPath }` |
+| `lib/index.mjs` | `qqbotHandleCommand`：能嗅探出格式的作为 `{type:'image'}` 内容块送进会话；**嗅探不出的退回 `[图片] 路径`**（不让整条消息丢掉） |
+
+**为什么以字节为准而不是照抄 `content_type`**：DSH 会**用真实字节校验声明的 mediaType**
+（`SaveImageAttachment` 注释："Caller-declared media type, checked against fully decoded bytes"）。
+既然校验方看字节，我们就不该把外部来源的声明当事实转手传下去。
+
+**⚠ 更正一处我先前的错误结论**：我在 5.4.1 之后的对话里说过「实测 QQ 会把 WebP 报成 image/png」——
+**那是错的**。我当时看的是 `read_image` 报告的**归一化预览副本**格式（它会把图重编码成 WebP），
+不是源文件。实际那个文件是 **2888068 字节的真 PNG**（头 `89504e47`），与 QQ 声明的 `image/png` **一致**。
+所以嗅探是**防御性**做法，不是在修一个已知的 QQ bug。代码注释里也留了这条更正。
+
+**测试：** 守卫 #37 扩写 —— `sendToSession` 必须做字符串/数组兼容、图片块必须是
+`{type,mediaType,data,name?}` 形状、必须有格式嗅探且 4 种魔数齐全、嗅探不出必须退回路径；
+**真跑** 6 个嗅探用例（PNG/JPEG/GIF/WebP/非图片/太短）+ 9 个附件用例（且收下的每项都必须带
+`mediaType` 与 base64）。
+守卫 #28 也顺手修了：它用固定 1800 字符窗口切 `sendToSession`，函数里加段注释就会被撑破
+（这次真踩到，误报「找不到 whenIdle」）—— 改成按真实函数边界切。
+
+守卫 #37 已自验两条：把兼容判断去掉会报「没有做字符串/内容块数组兼容」；
+把嗅探砍成只剩 PNG 会报「嗅探里没有 JPEG 的魔数」。
+
 ## [5.4.1] - 2026-10-07
 
 ### Added — 能接收 QQ 发来的图片（此前被静默丢弃）

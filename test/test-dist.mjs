@@ -1239,7 +1239,10 @@ await new Promise((res, rej) => {
   // 必须在 sendToSession 里、whenIdle() 之后调用（早了会被监听抢跑，等于没抑制）
   const fnAt = p.indexOf('async function sendToSession(');
   if (fnAt < 0) { console.error('28. 找不到 sendToSession'); process.exit(1); }
-  const fn = p.slice(fnAt, fnAt + 1800);
+  // 按**真实函数边界**切，不要用固定字符窗口 —— 函数里加段注释就会把窗口撑破
+  // （真踩过：给 sendToSession 加了一段说明后，whenIdle 被挤出 1800 字符窗口，误报）
+  const nextFnAt = p.indexOf('\n    async function ', fnAt + 10);
+  const fn = p.slice(fnAt, nextFnAt > fnAt ? nextFnAt : fnAt + 4000);
   const idleAt = fn.indexOf('await agent.whenIdle()');
   const supAt = fn.indexOf('suppressMonitorFor(');
   if (idleAt < 0) { console.error('28. sendToSession 里找不到 await agent.whenIdle()'); process.exit(1); }
@@ -1915,39 +1918,80 @@ await new Promise((res, rej) => {
     console.error('37. 没有限定只处理图片 —— 语音/文件会被当成图片下载');
     process.exit(1);
   }
-  if (!/await downloadFile\(a\.url, dest\)/.test(p)) {
+  if (!/await downloadFile\(a\.url, \w+\)/.test(p)) {
     console.error('37. 没有真的下载（应复用 downloadFile）');
+    process.exit(1);
+  }
+  // 先落到 .part，嗅探出真实格式后再改名 —— 免得扩展名与内容不符
+  if (!/\.part'/.test(p)) {
+    console.error('37. 没有先落 .part 再按嗅探结果改名');
     process.exit(1);
   }
   if (!/dsh-qq-img/.test(p)) {
     console.error('37. 下载目录不是独立的临时子目录');
     process.exit(1);
   }
-  // ③ 命令匹配用原文，转发用含路径的文本
-  if (!/const relayText = imgs\.length/.test(p)) {
-    console.error('37. 没有 relayText —— 图片路径会污染命令匹配');
+  // ③ 命令匹配用原文，转发用 relayContent（可能是带图的内容块数组）
+  if (!/let relayContent = t;/.test(p)) {
+    console.error('37. 没有 relayContent —— 图片会污染命令匹配');
     process.exit(1);
   }
-  if (!/return await cmdRelayToSession\(st, relayText\);/.test(p)) {
-    console.error('37. 转发没有用 relayText —— 图片路径进不了会话');
+  if (!/return await cmdRelayToSession\(st, relayContent\);/.test(p)) {
+    console.error('37. 转发没有用 relayContent —— 图片进不了会话');
     process.exit(1);
   }
-  // ④ 不许动 sendToSession（共用核心，用户选的是简单法）
-  if (/Array\.isArray\(content\) \? content/.test(p)) {
-    console.error('37. sendToSession 被改成支持 content 数组了 —— 用户选的是简单法，别动共用函数');
+  // ④ sendToSession 必须**向后兼容**地接受内容块数组（用户后来要求"显示图片而不是路径"）
+  if (!/const blocks = Array\.isArray\(content\) \? content : \[\{ type: 'text', text: content \}\]/.test(p)) {
+    console.error('37. sendToSession 没有做"字符串/内容块数组"兼容 —— 要么图片进不去，要么老调用点会坏');
+    process.exit(1);
+  }
+  // ⑤ 图片块必须是 DSH 的 PromptContentPart 形状（type/mediaType/data）
+  if (!/\{ type: 'image', mediaType: im\.mediaType, data: im\.data, name: im\.name \}/.test(p)) {
+    console.error('37. 图片内容块形状不对 —— 必须是 { type, mediaType, data, name? }');
+    process.exit(1);
+  }
+  // ⑥ 必须有格式嗅探（DSH 用真实字节校验 mediaType，不能照抄外部声明）
+  if (!/function sniffImageMediaType\(buf\)/.test(p)) {
+    console.error('37. 缺少 sniffImageMediaType —— mediaType 照抄外部声明会被 DSH 拒收');
+    process.exit(1);
+  }
+  for (const [label, hex] of [['PNG', '0x89'], ['JPEG', '0xff'], ['GIF', '0x47'], ['WebP', '0x52']]) {
+    if (p.indexOf(hex) < 0) {
+      console.error('37. 嗅探里没有 ' + label + ' 的魔数');
+      process.exit(1);
+    }
+  }
+  // ⑦ 嗅探不出格式时要能退回"给路径"，不能整条消息丢掉
+  if (!/unknownImgs\.push\(im\.localPath\)/.test(p)) {
+    console.error('37. 格式未知时没有退回路径 —— 那张图会整条丢掉');
+    process.exit(1);
+  }
+  if (!/\[图片\] ' \+ p/.test(p)) {
+    console.error('37. 退回路径的分支没有输出 [图片] 路径');
     process.exit(1);
   }
 
   // ⑤ 真跑附件筛选逻辑
-  const start = p.indexOf('async function downloadQQImageAttachments');
+  // 切片必须**从 sniffImageMediaType 开始** —— 它定义在 downloadQQImageAttachments
+  // 之前，只切后者会让嗅探函数不在作用域里，异常被 try/catch 吞掉、全部返回 0 张。
+  const start = p.indexOf('function sniffImageMediaType');
   const end = p.indexOf('async function qqbotHandleCommand');
   if (start < 0 || end < 0) {
     console.error('37. 抠不出 downloadQQImageAttachments 的代码段');
     process.exit(1);
   }
-  // 把函数体里的 await downloadFile 换成假实现，只验证筛选（不联网）
+  // 把函数体里的 await downloadFile 换成假实现，只验证筛选（不联网）。
+  // 现在实现还会 fs.readFileSync 做魔数嗅探，所以给一个桩 fs（返回 PNG 头）。
   const body = p.slice(start, end).replace(/await downloadFile\([^)]*\)/g, 'null');
-  const fn = new Function('fs', 'os', 'path', 'console', body + '\nreturn downloadQQImageAttachments;')(fs, os, path, { log() {}, error() {} });
+  const pngBuf = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const fakeFs = {
+    mkdirSync() {},
+    readFileSync() { return pngBuf; },
+    renameSync() {},
+    existsSync() { return true; },
+    unlinkSync() {},
+  };
+  const fn = new Function('fs', 'os', 'path', 'console', body + '\nreturn downloadQQImageAttachments;')(fakeFs, os, path, { log() {}, error() {} });
   const cases = [
     ['image/png', [{ content_type: 'image/png', url: 'u1' }], 1],
     ['image/jpeg', [{ content_type: 'image/jpeg', url: 'u2' }], 1],
@@ -1965,9 +2009,38 @@ await new Promise((res, rej) => {
       console.error('37. 附件用例「' + label + '」期望 ' + want + ' 张，实得 ' + got.length + ' 张');
       process.exit(1);
     }
+    // 收下的每一项都必须带上嗅探出的 mediaType 与 base64（否则发不出真图片）
+    if (want > 0) {
+      for (const it of got) {
+        if (it.mediaType !== 'image/png' || !it.data) {
+          console.error('37. 附件用例「' + label + '」的项缺少 mediaType/data：' + JSON.stringify({ m: it.mediaType, d: !!it.data }));
+          process.exit(1);
+        }
+      }
+    }
   }
 
-  console.log('37. 接收 QQ 图片 OK（没文字不丢 + 只接图片 + 下载到临时目录 + 真跑 ' + cases.length + ' 例 + 未动 sendToSession）');
+  // 单独验嗅探：4 种格式 + 非图片
+  const sStart = p.indexOf('function sniffImageMediaType');
+  const sEnd = p.indexOf('/**', sStart);
+  const sniff = new Function(p.slice(sStart, sEnd) + '\nreturn sniffImageMediaType;')();
+  const sniffCases = [
+    ['PNG', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0], 'image/png'],
+    ['JPEG', [0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0], 'image/jpeg'],
+    ['GIF', [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0, 0, 0, 0, 0, 0], 'image/gif'],
+    ['WebP', [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50], 'image/webp'],
+    ['非图片', [0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0], null],
+    ['太短', [0x89, 0x50], null],
+  ];
+  for (const [label, bytes, want] of sniffCases) {
+    const got = sniff(Buffer.from(bytes));
+    if (got !== want) {
+      console.error('37. 嗅探「' + label + '」期望 ' + want + '，实得 ' + got);
+      process.exit(1);
+    }
+  }
+
+  console.log('37. 接收 QQ 图片 OK（没文字不丢 + 只接图片 + 嗅探 ' + sniffCases.length + ' 例 + 附件 ' + cases.length + ' 例 + sendToSession 向后兼容 + 图片块形状正确）');
 }
 
 proxy.close();
