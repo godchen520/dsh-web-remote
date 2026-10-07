@@ -1941,7 +1941,8 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // ④ sendToSession 必须**向后兼容**地接受内容块数组（用户后来要求"显示图片而不是路径"）
-  if (!/const blocks = Array\.isArray\(content\) \? content : \[\{ type: 'text', text: content \}\]/.test(p)) {
+  //    写 (?:const|let)：带图片时要重新赋值成登记后的块，所以是 let，别只认 const
+  if (!/(?:const|let) blocks = Array\.isArray\(content\) \? content : \[\{ type: 'text', text: content \}\]/.test(p)) {
     console.error('37. sendToSession 没有做"字符串/内容块数组"兼容 —— 要么图片进不去，要么老调用点会坏');
     process.exit(1);
   }
@@ -2041,6 +2042,74 @@ await new Promise((res, rej) => {
   }
 
   console.log('37. 接收 QQ 图片 OK（没文字不丢 + 只接图片 + 嗅探 ' + sniffCases.length + ' 例 + 附件 ' + cases.length + ' 例 + sendToSession 向后兼容 + 图片块形状正确）');
+}
+
+// 38. 图片必须先登记成附件引用，**绝不能把裸图片块写进会话**
+//
+// 5.5.0 我让插件把图片以 wire 形式 { type:'image', mediaType, data } 直接 agent.send，
+// 结果每轮都崩：
+//   本轮运行失败 Cannot read properties of undefined (reading 'attachmentId')
+// 根因：会话记录里图片的形状是 ImageBlock ——
+//   { type:'image', attachment: { attachmentId, mediaType, bytes, width, height, ... } }
+// 我给的块**没有 attachment**，下游取 .attachment.attachmentId 得到 undefined。
+// 连带压缩总结也失败，会话文件只能靠外部工具备份 + 补登记才能救回来。
+//
+// 官方入口是 ctx.attachments.admitPromptContent()（文档原话：
+// "promotes image parts to durable references ... before any message is created"）。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const fnAt = p.indexOf('async function sendToSession(');
+  if (fnAt < 0) { console.error('38. 找不到 sendToSession'); process.exit(1); }
+  const nextFnAt = p.indexOf('\n    async function ', fnAt + 10);
+  const fn = p.slice(fnAt, nextFnAt > fnAt ? nextFnAt : fnAt + 6000);
+
+  // ① 必须真的登记
+  if (!/await attachments\.admitPromptContent\(blocks\)/.test(fn)) {
+    console.error('38. sendToSession 没有调用 admitPromptContent —— 裸图片块会写进会话，每轮崩溃');
+    process.exit(1);
+  }
+  // ② 登记必须发生在发送**之前**
+  const admitAt = fn.indexOf('await attachments.admitPromptContent');
+  const sendAt = fn.indexOf('agent.send({');
+  if (admitAt < 0 || sendAt < 0 || admitAt > sendAt) {
+    console.error('38. 登记不在发送之前 —— 发出去的仍是未登记的块');
+    process.exit(1);
+  }
+  // ③ 发送必须用**登记后的** blocks，不许把原始 content 绕过去
+  if (!/content: blocks,/.test(fn)) {
+    console.error('38. agent.send 没有用登记后的 blocks');
+    process.exit(1);
+  }
+  if (/content: content,/.test(fn)) {
+    console.error('38. agent.send 直接传了原始 content —— 绕过图片登记');
+    process.exit(1);
+  }
+  // ④ 两条失败路径都必须把图片块摘掉（不能把裸块留在会话里）
+  const drop = (fn.match(/blocks = blocks\.filter\(function \(b\) \{ return b && b\.type !== 'image'; \}\)/g) || []).length;
+  if (drop < 2) {
+    console.error('38. 只有 ' + drop + ' 条降级路径，必须有「附件服务不可用」+「登记失败」两条');
+    process.exit(1);
+  }
+  // ⑤ 图片全被摘光时不许发空消息，要给用户一句回话
+  if (!/图片附件登记服务不可用/.test(fn) || !/图片登记失败：/.test(fn)) {
+    console.error('38. 图片全被摘光时没有返回说明 —— 会发一条空消息或静默失败');
+    process.exit(1);
+  }
+  // ⑥ 裸 wire 图片块只允许出现在 QQ 接收侧那 1 处（那是待登记的输入，不是待发送的记录）
+  const rawWire = (p.match(/\{ type: 'image', mediaType: im\.mediaType/g) || []).length;
+  if (rawWire !== 1) {
+    console.error('38. 裸 wire 图片块出现 ' + rawWire + ' 处，应只有 1 处（QQ 接收侧构造、随后登记）');
+    process.exit(1);
+  }
+  // ⑦ 注释必须留着"为什么"，否则后人会当成多余代码顺手删掉
+  //    只匹配属性访问本身 —— 注释里它是跨行的（"…读记录取\n//   .attachment.attachmentId"），
+  //    要求"取 "紧跟属性名会失配（真踩过）
+  if (!/\.attachment\.attachmentId/.test(fn)) {
+    console.error('38. 丢失了踩坑说明 —— 后人会看不懂为什么必须登记，可能顺手简化掉');
+    process.exit(1);
+  }
+
+  console.log('38. 图片登记 OK（admitPromptContent 在发送前 + 用登记后 blocks + 2 条降级 + 裸块仅 1 处 + 踩坑说明留存）');
 }
 
 proxy.close();

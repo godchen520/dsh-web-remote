@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.5.1] - 2026-10-07
+
+### Fixed — **严重**：5.5.0 把裸图片块写进会话，导致每一轮都崩
+
+**5.5.0 是坏的，请务必升级到 5.5.1。** 症状：
+
+```
+本轮运行失败  Cannot read properties of undefined (reading 'attachmentId')   [UNKNOWN]
+```
+
+每轮都失败，压缩总结也跟着失败；会话文件一度只能靠外部工具备份 + 补登记才救回来。
+
+**根因：** 我在 5.5.0 里把 wire 形式的图片块直接交给了 `agent.send`：
+
+```js
+// 我发的（错）——没有 attachment 字段
+{ type: 'image', mediaType: 'image/jpeg', data: '<base64>', name: '...' }
+```
+
+但**会话记录里图片的形状是 `ImageBlock`**（`dsh-attachment`）：
+
+```ts
+interface ImageBlock {
+    type: 'image';
+    attachment: ImageAttachmentRef;   // { attachmentId, mediaType, bytes, width, height, ... }
+}
+```
+
+下游每轮读记录取 `block.attachment.attachmentId` → `block.attachment` 是 `undefined` → 整轮抛错。
+
+**正确的入口是 `ctx.attachments.admitPromptContent()`**，官方文档原话：
+
+> Browser-submitted prompt content accepted by Host prompt endpoints; the accepting Host promotes
+> image parts to durable references through `ctx.attachments.admitPromptContent()`
+> **before any message is created**, so a wire caller can never cite an attachment it did not upload.
+
+`dsh-acp`（同类的外部协议适配器）就是这么做的，照抄它的路径：
+`ctx.get('attachments')` → `saveImages(images)` → `{ type:'image', attachment: refs[i] }`。
+
+**改动（`lib/index.mjs` 的 `sendToSession`，所有通道转发的咽喉点）：**
+
+| 情况 | 行为 |
+|---|---|
+| 内容里没有图片 | 原样发送（**零开销**，5 个通道的老调用点一行没改） |
+| 有图片 | 先 `await attachments.admitPromptContent(blocks)`，再发送登记后的 `blocks` |
+| 附件服务不可用 | **摘掉图片块**，只发文本，并回一句「图片附件登记服务不可用，本条已跳过」 |
+| 登记失败（格式/体积超限等） | **摘掉图片块**，只发文本，并回一句「图片登记失败：<原因>」；下载路径仍在 QQ 日志里 |
+
+**两条降级路径都坚持一个原则：宁可少发一张图，也绝不让未登记的图片块进会话。**
+
+**测试：** 新增守卫 #38（最关键的一条）——
+`sendToSession` 必须调用 `admitPromptContent`；**登记必须在 `agent.send` 之前**；
+发送必须用登记后的 `blocks`，不许把原始 `content` 绕过去；必须有**两条**降级路径把图片块摘掉；
+图片全被摘光时必须返回说明（不能发空消息或静默失败）；裸 wire 图片块在 `index.mjs` 里
+**只允许出现 1 处**（QQ 接收侧构造、随后登记）；踩坑说明必须留在注释里（否则后人会顺手简化掉）。
+
+守卫 #38 已自验：把 `admitPromptContent` 改成 `admitPromptContent__DISABLED` 后，报
+「sendToSession 没有调用 admitPromptContent —— 裸图片块会写进会话，每轮崩溃」。
+
+守卫 #37 也顺手放宽了一处：它把 `const blocks = Array.isArray(...)` 写死了，
+而带图片时要重新赋值所以是 `let` —— 改成 `(?:const|let)`。
+
+**仍未做**：微信 iLink 支不支持收发图未测；QQ 语音/文件附件未接。
+
 ## [5.5.0] - 2026-10-07
 
 ### Changed — QQ 收到的图片直接在对话里显示，不再是一串路径
