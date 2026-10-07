@@ -1873,6 +1873,103 @@ await new Promise((res, rej) => {
   console.log('36. 监听发图 OK（两路信号都扫 + 真跑 ' + cases.length + ' 例 + 上限生效 + 只对 QQ 生效）');
 }
 
+// 37. 接收 QQ 发来的图片：不能再因为"没文字"就丢，且只接图片
+//
+// 用户问「你可以收到 QQ 发给你的图片吗」。实测日志确认能收到但被丢了：
+//   [qqbot] 收到消息 from 格子蓝调 (群):        ← 冒号后为空
+// 原因：qqbot.mjs 只读 msg.content，纯图片消息 text 为空 → `if (!text) return` 直接丢弃；
+// 且全插件搜 attachments 零命中。而 SDK 其实给了：
+//   InboundAttachment { content_type, url, filename?, height?, width?, size? }
+//   InboundMessage.attachments?: InboundAttachment[]
+//
+// 做法（用户选「简单法」）：下载到临时目录 → 把本地路径并进转发文本 →
+// 会话里的 AI 用 read_image 自己读。**不碰 sendToSession**（5 通道共用）。
+{
+  const p = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const q = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+
+  // ① 通道层：有附件时不能丢
+  if (!/if \(!text && attachments\.length === 0\) return;/.test(q)) {
+    console.error('37. qqbot.mjs 还是"没文字就丢" —— 纯图片消息仍会被丢弃');
+    process.exit(1);
+  }
+  if (!/const attachments = Array\.isArray\(msg\.attachments\)/.test(q)) {
+    console.error('37. qqbot.mjs 没有读 msg.attachments');
+    process.exit(1);
+  }
+  if (!/attachments: attachments,/.test(q)) {
+    console.error('37. qqbot.mjs 没有把 attachments 传给上层');
+    process.exit(1);
+  }
+  if (/if \(!text\) return;/.test(q)) {
+    console.error('37. 旧的 `if (!text) return;` 还在 —— 图片会被丢');
+    process.exit(1);
+  }
+
+  // ② 上层：必须下载，且只处理图片
+  if (!/async function downloadQQImageAttachments\(attachments\)/.test(p)) {
+    console.error('37. 缺少 downloadQQImageAttachments');
+    process.exit(1);
+  }
+  if (!/ct\.indexOf\('image\/'\) !== 0\) continue;/.test(p)) {
+    console.error('37. 没有限定只处理图片 —— 语音/文件会被当成图片下载');
+    process.exit(1);
+  }
+  if (!/await downloadFile\(a\.url, dest\)/.test(p)) {
+    console.error('37. 没有真的下载（应复用 downloadFile）');
+    process.exit(1);
+  }
+  if (!/dsh-qq-img/.test(p)) {
+    console.error('37. 下载目录不是独立的临时子目录');
+    process.exit(1);
+  }
+  // ③ 命令匹配用原文，转发用含路径的文本
+  if (!/const relayText = imgs\.length/.test(p)) {
+    console.error('37. 没有 relayText —— 图片路径会污染命令匹配');
+    process.exit(1);
+  }
+  if (!/return await cmdRelayToSession\(st, relayText\);/.test(p)) {
+    console.error('37. 转发没有用 relayText —— 图片路径进不了会话');
+    process.exit(1);
+  }
+  // ④ 不许动 sendToSession（共用核心，用户选的是简单法）
+  if (/Array\.isArray\(content\) \? content/.test(p)) {
+    console.error('37. sendToSession 被改成支持 content 数组了 —— 用户选的是简单法，别动共用函数');
+    process.exit(1);
+  }
+
+  // ⑤ 真跑附件筛选逻辑
+  const start = p.indexOf('async function downloadQQImageAttachments');
+  const end = p.indexOf('async function qqbotHandleCommand');
+  if (start < 0 || end < 0) {
+    console.error('37. 抠不出 downloadQQImageAttachments 的代码段');
+    process.exit(1);
+  }
+  // 把函数体里的 await downloadFile 换成假实现，只验证筛选（不联网）
+  const body = p.slice(start, end).replace(/await downloadFile\([^)]*\)/g, 'null');
+  const fn = new Function('fs', 'os', 'path', 'console', body + '\nreturn downloadQQImageAttachments;')(fs, os, path, { log() {}, error() {} });
+  const cases = [
+    ['image/png', [{ content_type: 'image/png', url: 'u1' }], 1],
+    ['image/jpeg', [{ content_type: 'image/jpeg', url: 'u2' }], 1],
+    ['无 content_type 兜底', [{ url: 'u3' }], 1],
+    ['语音跳过', [{ content_type: 'voice', url: 'u4' }], 0],
+    ['文件跳过', [{ content_type: 'file', url: 'u5' }], 0],
+    ['无 url 跳过', [{ content_type: 'image/png' }], 0],
+    ['空数组', [], 0],
+    ['非数组', null, 0],
+    ['多图', [{ content_type: 'image/png', url: 'a' }, { content_type: 'image/gif', url: 'b' }], 2],
+  ];
+  for (const [label, input, want] of cases) {
+    const got = await fn(input);
+    if (got.length !== want) {
+      console.error('37. 附件用例「' + label + '」期望 ' + want + ' 张，实得 ' + got.length + ' 张');
+      process.exit(1);
+    }
+  }
+
+  console.log('37. 接收 QQ 图片 OK（没文字不丢 + 只接图片 + 下载到临时目录 + 真跑 ' + cases.length + ' 例 + 未动 sendToSession）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');

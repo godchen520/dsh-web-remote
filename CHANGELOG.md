@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.4.1] - 2026-10-07
+
+### Added — 能接收 QQ 发来的图片（此前被静默丢弃）
+
+用户问「你可以收到 QQ 发给你的图片吗」。**先查代码，再让用户实测印证。**
+
+**查到的原因（两处）：**
+
+| 位置 | 问题 |
+|---|---|
+| `lib/qqbot.mjs` | 只读 `msg.content`；纯图片消息 `text` 为空 → **`if (!text) return;` 直接丢弃** |
+| 全插件 | 搜 `attachments` / `content_type` → **0 处命中**，附件从未被读取 |
+
+**用户实测日志印证**（决定性证据）：
+
+```
+[qqbot] 收到消息 from 格子蓝调 (群):
+```
+
+冒号后为空 —— **图片确实送到了机器人**，只是被那行 `return` 丢掉。
+（同一条日志里 `[qqbot] 启动通知已发送` 也顺带证实了群主动推送确实修好了。）
+
+**SDK 其实给了数据**（`dist/protocol/gateway/event-dispatcher.d.ts`）：
+
+```ts
+export interface InboundAttachment {
+    content_type: string;   // 如 "image/png"
+    url: string;            // ← 可直接下载
+    filename?: string; height?: number; width?: number; size?: number;
+}
+// InboundMessage.attachments?: InboundAttachment[]
+```
+
+**改动（用户选「简单法」，不碰共用核心）：**
+
+| 位置 | 改动 |
+|---|---|
+| `lib/qqbot.mjs` | 读 `msg.attachments`；`if (!text && attachments.length === 0) return;`（没文字**也没有附件**才丢）；把 `attachments` 传给上层；日志加上 `[附件 N]` |
+| `lib/index.mjs` | 新增 `downloadQQImageAttachments(attachments)`：**只处理图片**（`content_type` 以 `image/` 开头；没有 `content_type` 时兜底当图片），下载到 `<tmp>/dsh-qq-img/`，复用现成的 `downloadFile`（带重定向/超时/重试） |
+| `lib/index.mjs` | `qqbotHandleCommand`：**命令匹配仍用原始文本 `t`**，转发用 `relayText`（原文 + `[图片] 本地路径`）—— 否则 `[图片] C:\...` 会把 `/帮助` 之类的匹配搞坏 |
+| 未改动 | **`sendToSession` 没动** —— 那是 5 个通道共用的核心函数；简单法把路径写进文本，会话里的 AI 用 `read_image` 自己读 |
+
+**实测验证（真下载，不是断言）：**
+
+```
+下载 https://api.qrserver.com/... → 349 字节，文件头 89504e470d0a1a0a ✓ 是 PNG
+```
+
+**测试：** 新增守卫 #37 —— 通道层必须「没文字也不丢」且传 `attachments`、旧的 `if (!text) return;` 不许回来；
+上层必须只处理图片、必须真下载、必须是独立临时目录；必须有 `relayText` 且转发用它；
+**禁止**把 `sendToSession` 改成支持 content 数组（用户选的是简单法）；并**真跑** 9 个附件筛选用例
+（png/jpeg/无 content_type 兜底/语音跳过/文件跳过/无 url 跳过/空数组/非数组/多图）。
+
+守卫 #37 已自验：把判定改回 `if (!text) return;` 会报「还是"没文字就丢" —— 纯图片消息仍会被丢弃」。
+
+**待办（未做）**：微信 iLink 支不支持发图/收图**未测**；QQ 语音（`voice_wav_url` + `asr_refer_text` 已有字段）
+也还没接。
+
 ## [5.4.0] - 2026-10-07
 
 ### Added — 监听通知可以带图片发到 QQ（方案 C + 只做 QQ）
