@@ -2220,6 +2220,33 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
+  // ⑨ 窄屏判定不能只看 innerWidth
+  //    实测教训：手机上报出的 innerWidth 未必 < 1024，只看它会导致整个特性静默不生效
+  //    （脚本在跑、代码在页面里、版本徽标也对，就是没反应）。必须留触摸设备兜底。
+  if (!/function railNarrow\(/.test(p)) {
+    console.error('39. 缺少 railNarrow —— 把窄屏判定写回只看 innerWidth 会让手机上静默失效');
+    process.exit(1);
+  }
+  if (!/pointer:\s*coarse/.test(p)) {
+    console.error('39. railNarrow 没有触摸设备兜底（pointer: coarse）—— innerWidth 不准时就哑了');
+    process.exit(1);
+  }
+  if (!/narrow\s*=\s*railNarrow\(\)/.test(p)) {
+    console.error('39. syncMobileRail 没有改用 railNarrow()');
+    process.exit(1);
+  }
+
+  // ⑩ 必须能自证：异常被 try/catch 吞掉后失败是静默的，得有回报通道
+  //    教训：这次排查全靠猜，就是因为没有任何可观测性。
+  if (!/function railReport\(/.test(p) || !/fetch\('\/remote\/railreport'/.test(p)) {
+    console.error('39. 缺少 railReport 上报 —— 再出问题还是只能靠猜');
+    process.exit(1);
+  }
+  if (!/railReport\(\)/.test(p) || !/railDebug/.test(idx) || !/path:\s*'\/remote\/railreport'/.test(idx)) {
+    console.error('39. 上报没有接上（客户端调用 / 服务端存储 / snapshot 下发 三者缺一）');
+    process.exit(1);
+  }
+
   console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 服务端默认开）');
 }
 

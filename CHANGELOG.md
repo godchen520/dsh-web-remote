@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.1] - 2026-10-07
+
+### Fixed — 5.6.0 的窄屏去竖栏在手机上静默不生效
+
+5.6.0 部署正确（服务端 5.6.0、注入脚本里有新代码、手机面板版本徽标也是 v5.6.0），但手机上**什么都没变**。
+
+**根因：窄屏判定只看了 `window.innerWidth < 1024`。** 这个读数在手机上不可靠 —— 条件不成立时 `syncMobileRail()` 直接走到"不处理"分支，而它整个包在 `try/catch` 里、异常被吞掉，所以表现就是**完全静默**：脚本在跑、代码在页面里、版本也对，就是没反应。
+
+**修法：**
+
+- 新增 `railNarrow()`：`innerWidth < 1024` **或** `(pointer: coarse) && screen.width <= 1024`（触摸设备兜底）；
+- `syncMobileRail()` 改用 `railNarrow()`。
+
+**同时补上可观测性（这次的真正教训）：** 一个"异常全吞掉"的特性，出问题就只能靠猜。新增：
+
+- 客户端 `railReport()`：首次同步时把量到的真实数值（`innerWidth` / `clientWidth` / `screen.width` / `pointer:coarse` / 是否找到 frame / `data-sidebar-collapsed` 的值 / 改写前的网格模板 / UA）上报一次；
+- 服务端 `POST /remote/railreport` 接收，存在内存里并随 `/remote/info` 的 `railDebug` 下发。
+
+**守卫 #39 扩充**：断言存在 `railNarrow` 与 `pointer: coarse` 兜底、`syncMobileRail` 确实改用 `railNarrow()`、以及"上报三件套"（客户端调用 / 服务端存储 / snapshot 下发）一个都不能少。
+
 ## [5.6.0] - 2026-10-07
 
 ### Added — 窄屏收起态去掉图标栏那条竖栏，只留一个展开把手
