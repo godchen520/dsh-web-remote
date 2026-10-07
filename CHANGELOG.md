@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.6.0] - 2026-10-07
+
+### Added — 窄屏收起态去掉图标栏那条竖栏，只留一个展开把手
+
+手机上通过远程插件打开 DSH 时，侧边栏**收起后那条竖栏仍然占位置**（≈45px，即 56px 轨道 × 移动端 80% 缩放）。现在窄屏收起态会把这条竖栏也去掉，只保留一个贴左边缘中部的展开把手。**手机端默认开**，只作用于窄屏 + 收起态。
+
+**为什么不能靠 CSS 压宽度（踩过的坑）：** 那条竖栏不是侧边栏元素撑出来的，而是 `AppFrame` 三列网格的**第一条轨道**，并且是**内联样式**：
+
+```html
+<!-- dsh-client-ui-layout/lib/client.js:320 -->
+<div style="grid-template-columns: 56px minmax(0px,1fr) minmax(0px,0px)" data-sidebar-collapsed="true">
+```
+
+那个 `56` 是 `collapsedWidth`（`client.js:241`）：`darwin || 窗口标题栏 ? 0 : 56`。所以把侧边栏元素压成 0 宽**没有任何用** —— 轨道照样占 56px，只会从"有内容的竖栏"变成"一条空白"。正确做法是只把内联模板的**第一条**轨道改成 `0px`，后两条原样保留（右侧栏宽度是 JS 按视口动态算的）。
+
+**实现要点：**
+
+- 用 DSH 自己的 `data-sidebar-collapsed` 判定收起，**不碰** CSS Module 哈希 class（`hHd-Xa_*` / `pI_x6G_*` 随版本变）；
+- 展开复用 DSH 原生按钮（按 `aria-label`「打开侧边栏 / Open sidebar」定位），不自己改状态；
+- React 每次渲染会重写内联样式，所以挂在 frame 的 `style` 观察器上重放；幂等靠 `data-webrm-rail` 标记，且**先打标记、后写样式**（顺序反了会与观察器形成回环）；
+- 断点用 **1024**，与 DSH 自己的 `SIDEBAR_AUTO_COLLAPSE` 对齐 —— 用 768 会在 768~1023px 区间漏掉（那些宽度 DSH 同样是收起态）。
+
+**新增端点：** `POST /remote/ui` `{ "mobileRailHidden": true|false }`（读写经 `store.ui.mobileRailHidden`，缺省 `true`；当前值随 `/remote/info` 下发）。
+
+**新增守卫 #39**，把上面这些"改错地方就白改"的事实固化进测试：断言改写的是网格轨道而不是元素宽度、正则只动第一条轨道（真跑一遍验证后两条不变）、不出现哈希 class、标记先于写入、断点对齐 1024、服务端默认开且端点存在。
+
 ## [5.5.1] - 2026-10-07
 
 ### Fixed — **严重**：5.5.0 把裸图片块写进会话，导致每一轮都崩

@@ -2112,6 +2112,117 @@ await new Promise((res, rej) => {
   console.log('38. 图片登记 OK（admitPromptContent 在发送前 + 用登记后 blocks + 2 条降级 + 裸块仅 1 处 + 踩坑说明留存）');
 }
 
+// 39. 窄屏收起态：去掉图标栏那条竖栏，只留一个展开把手
+// 用户反馈：手机上通过远程插件打开，侧边栏收起后那条竖栏仍然占位置。
+//
+// 留在守卫里的**关键事实**（改错地方会白改，甚至改出新问题）：
+//   · 竖栏宽度来自 AppFrame 的**内联** grid-template-columns 的**第一条轨道**，
+//     不是侧边栏元素的宽度 —— 只把侧边栏压成 0 宽，轨道照样占 56px，
+//     只会从"有内容的竖栏"变成"一条空白"。这是最容易踩的坑。
+//   · 那个 56 来自 dsh-client-ui-layout 的 collapsedWidth
+//     （darwin / 带窗口标题栏之外恒为 56）。
+//   · 收起状态必须用 DSH 自己的 data-sidebar-collapsed 判定，**不能**用哈希 class
+//     （hHd-Xa_* / pI_x6G_* 是 CSS Module 产物，随版本变）。
+//   · 与挂在 frame 上的 observer 的幂等靠 data-webrm-rail 标记，
+//     且必须**先打标记、后写样式**；顺序反了重入时认不出是自己写的 → 回环。
+{
+  const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+
+  if (!/function syncMobileRail\(/.test(p)) {
+    console.error('39. 缺少 syncMobileRail —— 窄屏收起态仍会白占一条 56px 竖栏');
+    process.exit(1);
+  }
+  const fnAt2 = p.indexOf('function syncMobileRail(');
+  const railFn = p.slice(fnAt2, fnAt2 + 2600);
+
+  // ① 必须改写网格轨道本身
+  if (!/frame\.style\.gridTemplateColumns\s*=/.test(railFn)) {
+    console.error('39. 没有改写 grid-template-columns —— 只压子元素宽度不减少占位（轨道仍是 56px）');
+    process.exit(1);
+  }
+  if (/\.style\.width\s*=/.test(railFn)) {
+    console.error('39. 出现"把元素宽度压成 0"的写法 —— 对网格轨道无效，改错地方了');
+    process.exit(1);
+  }
+
+  // ② 真跑：从源码里取出正则本身，验证只动第一条轨道、后两条原样保留
+  const zSrc = /\/\^\(\\s\*\)\[\\d\.\]\+px\//.exec(p);
+  const rSrc = /\/\^\(\\s\*\)0px\//.exec(p);
+  if (!zSrc || !rSrc) {
+    console.error('39. 找不到轨道改写/还原的正则（必须锚定行首，只替换第一条轨道）');
+    process.exit(1);
+  }
+  const zeroRe = new Function('return ' + zSrc[0])();
+  const restoreRe = new Function('return ' + rSrc[0])();
+  const tpl = '56px minmax(0px, 1fr) minmax(0px, 300px)';
+  const zeroed = tpl.replace(zeroRe, '0px');
+  if (zeroed !== '0px minmax(0px, 1fr) minmax(0px, 300px)') {
+    console.error('39. 轨道改写结果不对：' + zeroed + '（后两条必须原样保留，右侧栏宽度是动态算的）');
+    process.exit(1);
+  }
+  if (zeroed.replace(restoreRe, '56px') !== tpl) {
+    console.error('39. 还原结果不对 —— 宽屏/展开态会残留 0 宽轨道');
+    process.exit(1);
+  }
+
+  // ③ 判定钩子必须是 DSH 自己的属性，且不得依赖哈希 class
+  if (!/data-sidebar-collapsed/.test(railFn)) {
+    console.error('39. 没有用 data-sidebar-collapsed 判定收起 —— 换成哈希 class 会随 DSH 升级失效');
+    process.exit(1);
+  }
+  if (/hHd-Xa_|pI_x6G_/.test(p)) {
+    console.error('39. 出现了 DSH 的哈希 class —— 它们随版本变，绝不可依赖');
+    process.exit(1);
+  }
+  if (/_toggle/.test(p)) {
+    console.error('39. 依赖了 _toggle 哈希 class —— 原生按钮应该按 aria-label 定位');
+    process.exit(1);
+  }
+
+  // ④ 展开必须复用 DSH 原生按钮（中英两种 aria-label 都要认）
+  if (!/打开侧边栏[\s\S]{0,80}open sidebar/i.test(p)) {
+    console.error('39. 没有按 aria-label 找原生「打开侧边栏」按钮（需同时认中英文）');
+    process.exit(1);
+  }
+
+  // ⑤ 幂等：先打标记再写样式，否则 observer 回环
+  const markAt = p.indexOf("setAttribute('data-webrm-rail', '1')");
+  const writeAt = p.indexOf('frame.style.gridTemplateColumns = tpl.replace(');
+  if (markAt < 0 || writeAt < 0 || markAt > writeAt) {
+    console.error('39. data-webrm-rail 标记没有先于样式写入 —— 观察器会陷入回环');
+    process.exit(1);
+  }
+
+  // ⑥ 断点必须对齐 DSH 自己的 SIDEBAR_AUTO_COLLAPSE(1024)，不是 768
+  if (!/RAIL_BP\s*=\s*1024/.test(p) || !/window\.innerWidth\s*<\s*RAIL_BP/.test(p)) {
+    console.error('39. 窄屏断点没有对齐 DSH 的 SIDEBAR_AUTO_COLLAPSE(1024) —— 768~1023px 会漏掉');
+    process.exit(1);
+  }
+
+  // ⑦ 服务端：默认开 + 下发到 /remote/info + 有端点可关
+  if (!/DEFAULT_MOBILE_RAIL_HIDDEN\s*=\s*true/.test(idx)) {
+    console.error('39. 手机端默认开没生效（DEFAULT_MOBILE_RAIL_HIDDEN 不是 true）');
+    process.exit(1);
+  }
+  if (!/mobileRailHidden:\s*mobileRailHidden\(\)/.test(idx)) {
+    console.error('39. snapshot 没有下发 mobileRailHidden —— 客户端拿不到开关');
+    process.exit(1);
+  }
+  if (!/path:\s*'\/remote\/ui'/.test(idx)) {
+    console.error('39. 缺少 /remote/ui 端点 —— 关不掉这个行为');
+    process.exit(1);
+  }
+
+  // ⑧ 把手必须默认隐藏，靠 data-show="1" 才出现
+  if (!/#webrm-railopen\{/.test(p) || !/#webrm-railopen\[data-show="1"\]/.test(p)) {
+    console.error('39. 展开把手缺少样式或显示开关（应 data-show="1" 才显示）');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 服务端默认开）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
