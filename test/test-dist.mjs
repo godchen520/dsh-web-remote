@@ -1723,8 +1723,23 @@ await new Promise((res, rej) => {
     console.error('35. 没有去重 —— 群推送每轮都被拒时会刷屏');
     process.exit(1);
   }
-  if (!/QQ 平台的限制，不是插件问题/.test(p)) {
-    console.error('35. 日志没有说清"这是 QQ 平台限制" —— 用户会以为是插件坏了');
+  if (!/这是群侧授权没开，不是插件问题/.test(p)) {
+    console.error('35. 日志没有说清"是群侧授权没开" —— 用户会以为是插件坏了');
+    process.exit(1);
+  }
+  // 必须指向**正确的**开关。早先这里写的是"去 QQ 开放平台开通权限"，是错的：
+  // 2026-10-07 查明授权开关在 QQ 客户端（机器人设置页 →「机器人主动在群聊内发言」），
+  // 不在开放平台。开放平台管理端翻遍了都没有这一项。
+  if (!/机器人主动在群聊内发言/.test(p)) {
+    console.error('35. 日志没指向正确的开关「机器人主动在群聊内发言」 —— 用户会去开放平台白找一圈');
+    process.exit(1);
+  }
+  if (/去 QQ 开放平台为该机器人开通群主动消息权限/.test(p)) {
+    console.error('35. 日志又指回"去 QQ 开放平台开通权限"了 —— 那是错的，开关在 QQ 客户端');
+    process.exit(1);
+  }
+  if (!/GROUP_MSG_RECEIVE/.test(p)) {
+    console.error('35. 没提到 GROUP_MSG_RECEIVE —— 那是"已授权"的信号，排查时有用');
     process.exit(1);
   }
   // 普通失败仍要如实报错（不能因为加了群特判就把其他错误吞掉）
@@ -1758,7 +1773,7 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('35. QQ 群推送 OK（识别 40034105 并讲清是平台限制 + 无去重刷屏 + 禁止私聊回退复活）');
+  console.log('35. QQ 群推送 OK（识别 40034105 + 指向正确的开关「机器人主动在群聊内发言」+ 禁止私聊回退复活）');
 }
 
 proxy.close();
