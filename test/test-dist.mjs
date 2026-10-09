@@ -2353,6 +2353,24 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
+  // ⑨ 收起/展开必须**立刻**响应
+  //    用户实测："侧栏按钮显示有延迟，打开侧栏要过一会才消失，关闭侧栏也要等一会才出现。"
+  //    根因：重构时删掉了挂在 frame 上的观察器，只剩 2 秒定时兜底 —— 兜底被当成了主路径。
+  if (!/function watchCollapseState\(/.test(pc)) {
+    console.error('39. 缺少 watchCollapseState —— 收起/展开只能等 2 秒定时兜底，把手显隐会肉眼可见地延迟');
+    process.exit(1);
+  }
+  // 必须盯 data-sidebar-collapsed：布局层渲染的是 `sidebarCollapsed || void 0`，
+  // 收起时属性在场、展开时被移除 —— 一次切换只触发一次（盯 class 会被 hover/动画刷爆）。
+  if (!/attributeFilter:\s*\['data-sidebar-collapsed'\]/.test(pc)) {
+    console.error('39. 收起观察器没有盯 data-sidebar-collapsed —— 盯 class 会被无关变化刷爆，盯别的又抓不到');
+    process.exit(1);
+  }
+  if (!/watchCollapseState\(\)/.test(pc)) {
+    console.error('39. watchCollapseState 定义了但没人调用 —— 又回到 2 秒延迟');
+    process.exit(1);
+  }
+
   // ⑨ 窄屏判定不能只看 innerWidth
   //    实测教训：手机上报出的 innerWidth 未必 < 1024，只看它会导致整个特性静默不生效
   //    （脚本在跑、代码在页面里、版本徽标也对，就是没反应）。必须留触摸设备兜底。

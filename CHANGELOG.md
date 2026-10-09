@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.1] - 2026-10-08
+
+### Fixed — 展开把手响应有延迟（收起/展开后要等一会才变）
+
+用户实测："侧栏按钮显示有延迟，打开侧栏要过一会才消失，关闭侧栏也要等一会才出现。"
+
+**根因是 5.7.0 重构时删过头了。** 原来有一条挂在 AppFrame 上的 `MutationObserver`
+监听 `['style', 'data-sidebar-collapsed']` —— 收起/展开会**立刻**触发同步。
+重构时我认为"body 上那条 class 观察器应该能覆盖"，就把它删了；结果那条观察器的
+回调是 `updateVisibility`（远程按钮的显隐），**根本不调 `syncMobileAdapt`** ——
+于是把手显隐只剩 2 秒的定时兜底，最多要等 2 秒。
+
+**修法**：补一条只盯收起状态的观察器 `watchCollapseState()`：
+
+```js
+collapseObs.observe(document.body, {
+  attributes: true,
+  attributeFilter: ['data-sidebar-collapsed'],
+  subtree: true,
+})
+```
+
+为什么盯 `data-sidebar-collapsed` 而不是 `class`：
+
+- 布局层渲染的是 `"data-sidebar-collapsed": sidebarCollapsed || void 0` ——
+  **收起时属性在场、展开时被移除**，一次切换只触发一次
+- 盯 `class` 会被任意 hover / 动画 / 主题切换刷爆，白白重算
+- 挂在 `document.body` 的 subtree 上，所以 React 整棵重挂也不会漏
+
+定时兜底保留，但注释里写明了**它只是兜底，不能用来响应收起/展开** —— 这次踩的就是
+"把兜底当成了主路径"。守卫 #39 新增 ⑨ 断言这条观察器存在、盯的属性正确、且确实被调用。
+
 ## [5.7.0] - 2026-10-08
 
 ### Changed — 移动端适配层重写：改用「语义后缀 CSS + body class 作用域」，并修掉设置弹窗被挤扁
