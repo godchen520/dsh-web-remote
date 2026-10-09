@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-remote",
-  "version": "5.7.1",
+  "version": "5.7.0-dev.2",
   "description": "DSH 手机/外网远程访问插件：免配置公网隧道 + 局域网 HTTPS 直连 + Tailscale P2P 直连 + 自定义端口 + 微信/飞书/Telegram/QQ官方/钉钉 机器人 + 通道健康监测。适配 DSH 0.1.2-rc.1 至 0.2.x（0.2.0-rc.2 实测）。",
   "type": "module",
   "main": "lib/index.mjs",

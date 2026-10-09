@@ -2455,7 +2455,47 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + body class 取证）');
+  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + body class 取证 + 收起/展开即时响应）');
+}
+
+// 40. 版本号约定：本地开发一律 `<目标版本>-dev.<N>`，且 CHANGELOG 必须有对应条目
+//
+// 用户定的约定（见仓库 AGENTS.md）：
+//   本地迭代（改一点 → 推 pin → 真机验）**不消耗正式版本号**，一律写 -dev.N：
+//     5.7.0-dev.1 → 5.7.0-dev.2 → 5.7.0-dev.3 → …
+//   目标版本在**真机验证通过之前不动**；验证通过、准备正式交付时才去掉 -dev.N。
+//
+// 为什么要机器查：这个号只影响面板徽标，改错了没有任何报错 ——
+// 于是很容易又"顺手 +1"占掉一个正式号（5.7.0 / 5.7.1 就是这么来的，其实是本地第 1、2 次试）。
+{
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const changelog = fs.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
+  const v = pkg.version;
+
+  // ① 格式：X.Y.Z 或 X.Y.Z-dev.N（不许出现别的后缀/四段号）
+  if (!/^\d+\.\d+\.\d+(-dev\.\d+)?$/.test(v)) {
+    console.error('40. 版本号格式不对：' + v + '（只允许 X.Y.Z 或 X.Y.Z-dev.N，见 AGENTS.md）');
+    process.exit(1);
+  }
+  // ② -dev.N 的 N 必须是正整数且不带前导零
+  const dev = /-dev\.(\d+)$/.exec(v);
+  if (dev && (dev[1] === '0' || /^0/.test(dev[1]))) {
+    console.error('40. 本地开发版号从 -dev.1 起，不能是 -dev.0 或带前导零：' + v);
+    process.exit(1);
+  }
+  // ③ CHANGELOG 必须有这个号的条目（本地开发版也一样要写）
+  if (changelog.indexOf('## [' + v + ']') < 0) {
+    console.error('40. CHANGELOG.md 里没有 ## [' + v + '] 的条目 —— 推出去的每个号都要有记录');
+    process.exit(1);
+  }
+  // ④ 最新的 CHANGELOG 条目必须就是当前版本（否则是忘了改号，或改了号没写条目）
+  const first = /^## \[([^\]]+)\]/.exec(changelog.slice(changelog.indexOf('## [')));
+  if (!first || first[1] !== v) {
+    console.error('40. CHANGELOG 最新条目是 [' + (first ? first[1] : '无') + ']，与 package.json 的 ' + v + ' 不一致');
+    process.exit(1);
+  }
+
+  console.log('40. 版本号约定 OK（' + v + ' —— 格式合法 + CHANGELOG 有对应条目且为最新）');
 }
 
 proxy.close();
