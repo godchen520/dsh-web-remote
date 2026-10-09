@@ -2,6 +2,104 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.0] - 2026-10-08
+
+### Changed — 移动端适配层重写：改用「语义后缀 CSS + body class 作用域」，并修掉设置弹窗被挤扁
+
+两项用户反馈一起处理：
+
+1. 手机上侧边栏收起后那条竖栏仍然占位置（5.6.x 已修，这次是**换实现**）
+2. **"手机端的设置页面被挤压的难以使用"** —— 设置弹窗里主题卡被挤成竖排
+
+#### 一、去竖栏：JS 改写内联样式 → 纯 CSS `!important`
+
+原来靠 JS 改写 AppFrame 的**内联** `grid-template-columns`，还要挂 observer 防 React 写回、
+用 `data-webrm-rail` 标记做幂等。现在改成一条纯 CSS 规则：
+
+```css
+body.webrm-mobile [class$="_frame"]:has([class*="_centerCol"])[data-sidebar-collapsed]{
+  grid-template-columns:0 minmax(0,1fr) 0 !important
+}
+```
+
+`!important` 本来就能压过内联样式 —— 于是**整套「写→被写回→再写」的循环和幂等标记全部删掉**，
+`syncMobileRail` 缩成只切两个 body class 的 `syncMobileAdapt`。
+
+#### 二、补上三条 `grid-column` 钉轨规则（这是原来漏掉的隐患）
+
+官方**收起态的侧边栏是绝对定位浮层**，会脱离网格流 —— 于是中间的 `centerCol` 会
+**自动落到那条已经变成 0 宽的第一轨道**上，把对话挤成 0 宽，而且是**间歇性**的
+（rail 在 relative/absolute 之间切）。所以必须逐列显式钉住：
+
+```css
+…[class*="_sidebarCol"]{grid-column:1/2}
+…[class$="_centerCol"]{grid-column:2/3}
+…[class$="_rightbarCol"]{grid-column:3/4}
+```
+
+⚠ 第三条是 **`_rightbarCol`**。参考实现（`dsh-remote-web-ui`，Apache-2.0）写的是
+`_detailsCol`，但那个后缀**在本版 DSH 里不存在**（逐包核实过），照抄会让右侧栏失去约束。
+
+#### 三、选择器策略：结构嗅探 → 语义后缀
+
+CSS Module 的类名是「**哈希前缀 + 语义后缀**」（`pI_x6G_centerCol`），所以用
+`[class$="_centerCol"]` 这种**属性后缀选择器** —— 官方重建只换哈希时依然有效。
+比原来"扫全文档找带内联 grid 的 div"稳得多，也便宜得多。
+
+两个踩到的细节：
+
+- `_frame` 在 **6 个包**里都有（聊天气泡、缩略图、subagent pill…）→ 必须加
+  `:has([class*="_centerCol"])` 限定成 AppFrame
+- `navCell` 是 `clsx()` 拼出来的（可能带第二个类）→ **后缀匹配会失配**，改用包含匹配
+  `[class*="_navCell"]`
+
+#### 四、设置弹窗窄屏重排（用户反馈的那个问题）
+
+官方设置弹窗是**固定宽的两栏**（左导航固定 188px + 右内容 `flex:1`）。窄屏下内容列
+只剩 ~240px，里面还要摆三张主题卡 → 文字只能竖排折行。窄屏改成纵向堆叠、导航变横向可滚动一条：
+
+```css
+body.webrm-mobile [class$="_overlay"] [class$="_panel"]{flex-direction:column;max-height:calc(100dvh - 32px)}
+body.webrm-mobile [class$="_overlay"] [class$="_panel"] [class$="_nav"]{flex-direction:row;…;overflow-x:auto}
+body.webrm-mobile [class$="_overlay"] [class$="_panel"] [class$="_navTitle"]{display:none}
+body.webrm-mobile [class$="_overlay"] [class$="_panel"] [class$="_navList"]{flex-direction:row;gap:4px}
+body.webrm-mobile [class$="_overlay"] [class$="_panel"] [class*="_navCell"]{height:34px;padding:0 12px;flex:none;border-radius:10px}
+body.webrm-mobile [class$="_overlay"] [class$="_panel"] [class$="_content"]{flex:1;min-height:0}
+```
+
+⚠ **必须限定在 `body.webrm-mobile` 下**：overlay 这个 portal 层是**所有弹窗共用的**，
+而适配样式表常驻 `<head>` —— 不加作用域会把**桌面端的设置面板也压成竖排**。
+
+**为什么不走"缩放"这条路**：把页面 zoom 调到 50% 确实能让弹窗布局正确（用户实测），
+但那是**全局缩放**，主界面文字会一起变小 —— 用一个问题换另一个问题。
+而**只给弹窗加 zoom 没有用**：宽度是父级给的，缩放子元素改变不了它拿到多少布局宽度。
+所以这里改的是弹窗的**布局**（谁占多宽），**字号一点不变**。
+
+#### 五、浮动把手钉死左上角
+
+原来量原生开关的高度、把把手钉在同一高度。现在直接钉左上（带 `env(safe-area-inset-*)`
+避开刘海），并给标题行让出 52px，免得压住标题：
+
+```css
+#webrm-railopen{position:fixed;top:calc(4px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));…}
+body.webrm-mobile.webrm-rail-hidden [class$="_titleRow"]{padding-left:52px}
+```
+
+那套测量逻辑（`railAnchorPct` / `rememberRailAnchor`）随之删除。
+
+#### 六、守卫 #39 重写 + 新增一条"注入脚本必须能独立解析"
+
+重构期间踩到一个**只有新守卫能抓的坑**：`panel.mjs` 整体是反引号模板字符串，
+我在注释里写了一个反引号（`` `pI_x6G_centerCol` ``）→ **整个注入脚本被截断**，
+而 `node --check` 只查宿主文件、完全查不出来。新守卫 ⓪ 直接
+`new Function(INJECT_SCRIPT)`，一秒抓到。
+
+⚠ 守卫取的是**求值后**的 `INJECT_SCRIPT`，不能拿模板原文切片：模板里有 `\\'` 这类转义
+（例如字体名 `\'SF Pro Text\'`），原文切片喂给 `new Function` 会误报。
+
+另外守卫现在会先**剥掉注释**再做标识符断言 —— 之前连踩三次误报，都是因为注释里
+**正当提到**了某个名字（"参考实现用的 `_detailsCol` 在本版不存在"）。
+
 ## [5.6.5] - 2026-10-07
 
 ### Changed — 展开把手的图标改成与原生收起按钮一致

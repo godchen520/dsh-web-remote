@@ -2112,71 +2112,183 @@ await new Promise((res, rej) => {
   console.log('38. 图片登记 OK（admitPromptContent 在发送前 + 用登记后 blocks + 2 条降级 + 裸块仅 1 处 + 踩坑说明留存）');
 }
 
-// 39. 窄屏收起态：去掉图标栏那条竖栏，只留一个展开把手
-// 用户反馈：手机上通过远程插件打开，侧边栏收起后那条竖栏仍然占位置。
+// 39. 窄屏适配层：去掉图标栏那条竖栏 + 设置弹窗窄屏重排
+// 用户反馈：① 手机上侧边栏收起后那条竖栏仍然占位置；
+//           ② 手机端的设置页面被挤压的难以使用。
+//
+// v5.7.0 重构：从「JS 改写内联 grid-template-columns」改成「纯 CSS + !important」。
+// 原因：!important 本来就能压过内联样式，不需要 JS 去写，也就不需要
+// 「写 → 被 React 写回 → 再写」的循环和幂等标记。
 //
 // 留在守卫里的**关键事实**（改错地方会白改，甚至改出新问题）：
-//   · 竖栏宽度来自 AppFrame 的**内联** grid-template-columns 的**第一条轨道**，
-//     不是侧边栏元素的宽度 —— 只把侧边栏压成 0 宽，轨道照样占 56px，
-//     只会从"有内容的竖栏"变成"一条空白"。这是最容易踩的坑。
-//   · 那个 56 来自 dsh-client-ui-layout 的 collapsedWidth
-//     （darwin / 带窗口标题栏之外恒为 56）。
-//   · 收起状态必须用 DSH 自己的 data-sidebar-collapsed 判定，**不能**用哈希 class
-//     （hHd-Xa_* / pI_x6G_* 是 CSS Module 产物，随版本变）。
-//   · 与挂在 frame 上的 observer 的幂等靠 data-webrm-rail 标记，
-//     且必须**先打标记、后写样式**；顺序反了重入时认不出是自己写的 → 回环。
+//   · 竖栏宽度来自 AppFrame 的 grid 第一条轨道，不是侧边栏元素的宽度 ——
+//     只把侧边栏压成 0 宽，轨道照样占 56px，只会从"有内容的竖栏"变成"一条空白"。
+//   · **必须逐列显式钉住轨道**（grid-column:1/2 / 2/3 / 3/4）。官方收起态的侧边栏是
+//     绝对定位浮层、脱离网格流，中间的 centerCol 会**自动落到那条已经 0 宽的第一轨道**
+//     上，把对话挤成 0 宽 —— 而且是间歇性的。参考实现（dsh-remote-web-ui）为此专门
+//     补了三条规则，我们照抄了思路。
+//   · ⚠ 第三条轨道是 _rightbarCol。参考实现写的是 _detailsCol，那个后缀
+//     **在本版 DSH 里不存在**（逐包核实过）—— 照抄会让右侧栏轨道失去约束。
+//   · 收起状态用 DSH 自己的 data-sidebar-collapsed 判定，**不能**用哈希 class。
+//   · 选择器用**语义后缀**（[class$="_centerCol"]）：CSS Module 的类名是
+//     「哈希前缀 + 语义后缀」（例：pI_x6G_centerCol），官方重建只换哈希时后缀选择器
+//     依然有效。但**绝不能把哈希前缀写死**（pI_x6G_ / VOzbGW_ / hHd-Xa_ 都随版本变）。
+//   · 所有规则必须挂在 body.webrm-mobile 下：style 标签常驻 head，
+//     不加作用域的话**桌面端的设置面板也会被压成竖排**（参考实现在 1440px 上实测过）。
 {
   const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  // 剥掉注释后再做「标识符 / 选择器」类断言。
+  // 教训（连踩三次）：注释里**正当提到**某个名字（"参考实现用的 _detailsCol 在本版
+  // 不存在"、"那套测量逻辑连同 railAnchorPct 一起删掉了"）会让断言误报，
+  // 而误报的代价是逼着人删掉本来有价值的说明。
+  const stripComments = (s) => s
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+  const pc = stripComments(p);
 
-  if (!/function syncMobileRail\(/.test(p)) {
-    console.error('39. 缺少 syncMobileRail —— 窄屏收起态仍会白占一条 56px 竖栏');
+  // ⓪ 注入脚本必须能独立解析
+  //    教训：panel.mjs 整体是一个反引号模板字符串，注释里混进一个反引号就会
+  //    把整个注入脚本截断 —— 而 node --check 只查宿主文件、查不出来。
+  //    ⚠ 必须用**求值后**的 INJECT_SCRIPT，不能拿模板的原文切片：
+  //      模板里有 \\' 这类转义（例如字体名 \'SF Pro Text\'），原文切片喂给
+  //      new Function 会解析失败 —— 那是取法的问题，不是脚本的问题（踩过）。
+  const bt = (p.match(/`/g) || []).length;
+  if (bt !== 2) {
+    console.error('39. panel.mjs 里的反引号不是 2 个（模板边界）—— 注释里混进反引号会截断整个注入脚本');
     process.exit(1);
   }
-  const fnAt2 = p.indexOf('function syncMobileRail(');
-  const railFn = p.slice(fnAt2, fnAt2 + 2600);
-
-  // ① 必须改写网格轨道本身
-  if (!/frame\.style\.gridTemplateColumns\s*=/.test(railFn)) {
-    console.error('39. 没有改写 grid-template-columns —— 只压子元素宽度不减少占位（轨道仍是 56px）');
+  let injectSrc = null;
+  try {
+    const mod = await import(new URL('../lib/panel.mjs', import.meta.url).href);
+    injectSrc = mod.INJECT_SCRIPT;
+  } catch (e) {
+    console.error('39. 无法载入 lib/panel.mjs: ' + e.message);
     process.exit(1);
   }
-  if (/\.style\.width\s*=/.test(railFn)) {
+  try {
+    new Function(injectSrc);
+  } catch (e) {
+    console.error('39. 注入脚本无法独立解析 —— 模板字符串被截断了: ' + e.message);
+    process.exit(1);
+  }
+
+  // ① 去竖栏必须是纯 CSS + !important，且 JS 里不得再改写内联样式
+  if (!/\[class\$="_frame"\]:has\(\[class\*="_centerCol"\]\)\[data-sidebar-collapsed\]\{grid-template-columns:0 minmax\(0,1fr\) 0 !important\}/.test(pc)) {
+    console.error('39. 缺少「纯 CSS 压掉第一条轨道」的规则（!important 才能压过 React 的内联样式）');
+    process.exit(1);
+  }
+  if (/frame\.style\.gridTemplateColumns\s*=/.test(pc)) {
+    console.error('39. 还在用 JS 改写内联 grid-template-columns —— 已改为纯 CSS，这条路径应当删掉');
+    process.exit(1);
+  }
+  if (!/function syncMobileAdapt\(/.test(pc)) {
+    console.error('39. 缺少 syncMobileAdapt —— 适配层的 body class 没人切');
+    process.exit(1);
+  }
+  // 接线：定义在、但没人调用 = 静默失效（改名时最容易漏）
+  const adaptCalls = (pc.match(/syncMobileAdapt\(\)/g) || []).length;
+  if (adaptCalls < 4) {
+    console.error('39. syncMobileAdapt 的调用点只有 ' + adaptCalls + ' 处 —— 应有 4 处（建把手 / resize / 定时兜底 / fetchInfo 回包）');
+    process.exit(1);
+  }
+  if (/syncMobileRail/.test(pc)) {
+    console.error('39. 还残留旧函数名 syncMobileRail —— 改名没改全');
+    process.exit(1);
+  }
+  // 只在这个函数体内禁 style.width —— 插件别处（按钮尺寸）合法地在用
+  const adaptAt = p.indexOf('function syncMobileAdapt(');
+  const adaptFn = adaptAt < 0 ? '' : stripComments(p.slice(adaptAt, adaptAt + 2200));
+  if (/\bstyle\.width\s*=/.test(adaptFn)) {
     console.error('39. 出现"把元素宽度压成 0"的写法 —— 对网格轨道无效，改错地方了');
     process.exit(1);
   }
 
-  // ② 真跑：从源码里取出正则本身，验证只动第一条轨道、后两条原样保留
-  const zSrc = /\/\^\(\\s\*\)\[\\d\.\]\+px\//.exec(p);
-  const rSrc = /\/\^\(\\s\*\)0px\//.exec(p);
-  if (!zSrc || !rSrc) {
-    console.error('39. 找不到轨道改写/还原的正则（必须锚定行首，只替换第一条轨道）');
+  // ② 必须逐列钉住轨道（否则 centerCol 会落到 0 宽的第一轨道上）
+  if (!/\[class\*="_sidebarCol"\]\{grid-column:1\/2\}/.test(pc)) {
+    console.error('39. 没有把侧边栏钉到第 1 轨道 —— 收起态它脱离网格流，会带偏后面几列');
     process.exit(1);
   }
-  const zeroRe = new Function('return ' + zSrc[0])();
-  const restoreRe = new Function('return ' + rSrc[0])();
-  const tpl = '56px minmax(0px, 1fr) minmax(0px, 300px)';
-  const zeroed = tpl.replace(zeroRe, '0px');
-  if (zeroed !== '0px minmax(0px, 1fr) minmax(0px, 300px)') {
-    console.error('39. 轨道改写结果不对：' + zeroed + '（后两条必须原样保留，右侧栏宽度是动态算的）');
+  if (!/\[class\$="_centerCol"\]\{grid-column:2\/3\}/.test(pc)) {
+    console.error('39. 没有把 centerCol 钉到第 2 轨道 —— 它会自动落到 0 宽的第 1 轨道，把对话挤成 0 宽');
     process.exit(1);
   }
-  if (zeroed.replace(restoreRe, '56px') !== tpl) {
-    console.error('39. 还原结果不对 —— 宽屏/展开态会残留 0 宽轨道');
+  if (!/\[class\$="_rightbarCol"\]\{grid-column:3\/4\}/.test(pc)) {
+    console.error('39. 没有把右侧栏钉到第 3 轨道（本版后缀是 _rightbarCol）');
     process.exit(1);
   }
 
-  // ③ 判定钩子必须是 DSH 自己的属性，且不得依赖哈希 class
-  if (!/data-sidebar-collapsed/.test(railFn)) {
+  // ③ 判定钩子必须是 DSH 自己的属性，且不得写死哈希前缀
+  if (!/\[data-sidebar-collapsed\]/.test(pc)) {
     console.error('39. 没有用 data-sidebar-collapsed 判定收起 —— 换成哈希 class 会随 DSH 升级失效');
     process.exit(1);
   }
-  if (/hHd-Xa_|pI_x6G_/.test(p)) {
-    console.error('39. 出现了 DSH 的哈希 class —— 它们随版本变，绝不可依赖');
+  if (/hHd-Xa_|pI_x6G_|VOzbGW_/.test(pc)) {
+    console.error('39. 写死了 DSH 的哈希前缀 —— 只允许用语义后缀（[class$="_xxx"]）');
     process.exit(1);
   }
-  if (/_toggle/.test(p)) {
+  if (/_toggle/.test(pc)) {
     console.error('39. 依赖了 _toggle 哈希 class —— 原生按钮应该按 aria-label 定位');
+    process.exit(1);
+  }
+  if (!/function isRailCollapsed\(/.test(pc)) {
+    console.error('39. 缺少 isRailCollapsed —— 收起状态要单独可测');
+    process.exit(1);
+  }
+
+  // ④ 适配层必须有 body class 作用域，且每条规则都挂在它下面
+  if (!/MOBILE_CLASS = 'webrm-mobile'/.test(pc) || !/RAIL_HIDDEN_CLASS = 'webrm-rail-hidden'/.test(pc)) {
+    console.error('39. 缺少 webrm-mobile / webrm-rail-hidden 两个 body class');
+    process.exit(1);
+  }
+  if (!/body\.classList\.add\(MOBILE_CLASS\)/.test(pc) || !/body\.classList\.remove\(MOBILE_CLASS\)/.test(pc)) {
+    console.error('39. 没有按窄屏开关 webrm-mobile —— 适配层会漏到桌面端');
+    process.exit(1);
+  }
+  const cssAt = p.indexOf('var ADAPT_CSS = [');
+  const cssEnd = p.indexOf('].join(\'\')', cssAt);
+  const cssBlock = cssAt < 0 || cssEnd < 0 ? '' : stripComments(p.slice(cssAt, cssEnd));
+  const ruleCount = (cssBlock.match(/^\s*'body\./gm) || []).length;
+  if (ruleCount < 10) {
+    console.error('39. ADAPT_CSS 里的规则太少（' + ruleCount + ' 条）—— 设置弹窗重排那几条丢了？');
+    process.exit(1);
+  }
+  const bodyPrefixed = (cssBlock.match(/'body\.' \+ MOBILE_CLASS/g) || []).length;
+  if (bodyPrefixed !== ruleCount) {
+    console.error('39. ADAPT_CSS 里有 ' + (ruleCount - bodyPrefixed) + ' 条规则没挂 body class 作用域 —— style 标签常驻 head，会改坏桌面端');
+    process.exit(1);
+  }
+  // 规则里（不是注释里）绝不能出现 _detailsCol
+  if (/_detailsCol/.test(cssBlock)) {
+    console.error('39. 规则里出现了 _detailsCol —— 本版 DSH 的右侧栏后缀是 _rightbarCol');
+    process.exit(1);
+  }
+
+  // ⑤ 设置弹窗窄屏重排（用户反馈："手机端的设置页面被挤压的难以使用"）
+  //    官方是固定宽两栏（左导航 + 右内容），窄屏下内容列被挤到主题卡竖排。
+  if (!/\[class\$="_overlay"\] \[class\$="_panel"\]\{flex-direction:column/.test(pc)) {
+    console.error('39. 设置弹窗没有改成纵向堆叠 —— 窄屏下内容列还是被固定宽导航挤扁');
+    process.exit(1);
+  }
+  if (!/\[class\$="_nav"\]\{flex-direction:row/.test(pc) || !/\[class\$="_navList"\]\{flex-direction:row/.test(pc)) {
+    console.error('39. 设置弹窗的导航没有改成横向一条（nav + navList 两层都要改）');
+    process.exit(1);
+  }
+  if (!/\[class\$="_navTitle"\]\{display:none\}/.test(pc)) {
+    console.error('39. 导航横排后没有隐藏 navTitle —— 标题会挤在横向列表里');
+    process.exit(1);
+  }
+  // navCell 是 clsx() 拼出来的（可能带第二个类），后缀匹配会失配 → 必须用包含匹配
+  if (!/\[class\*="_navCell"\]\{/.test(pc)) {
+    console.error('39. navCell 没有用包含匹配 —— 它是 clsx() 拼的，[class$=] 会失配');
+    process.exit(1);
+  }
+  if (/\[class\$="_navCell"\]\{/.test(pc)) {
+    console.error('39. navCell 用了后缀匹配 —— clsx() 拼类时它会静默失效');
+    process.exit(1);
+  }
+  if (!/\[class\$="_content"\]\{flex:1;min-height:0\}/.test(pc)) {
+    console.error('39. 设置弹窗的内容列没有拿到 flex:1 —— 纵向堆叠后它必须自己撑开');
     process.exit(1);
   }
 
@@ -2186,13 +2298,14 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  // ⑤ 幂等：先打标记再写样式，否则 observer 回环
-  const markAt = p.indexOf("setAttribute('data-webrm-rail', '1')");
-  // 主路径是 indexOf('minmax(') 切分后的 '0px ' 拼接；正则那条是兜底分支，位置更靠后。
-  // 这里断言主路径即可 —— 改写成别的写法时也要保证"先打标记后写样式"。
-  const writeAt = p.indexOf("frame.style.gridTemplateColumns = '0px ' + tpl0.slice(cut)");
-  if (markAt < 0 || writeAt < 0 || markAt > writeAt) {
-    console.error('39. data-webrm-rail 标记没有先于样式写入 —— 观察器会陷入回环');
+  // ⑥ 旧的幂等机制应当彻底消失：不再有标记，也不再有挂在 frame 上监听内联 style 的
+  //    观察器（纯 CSS 方案下这两样都不需要；留着就是死代码）
+  if (/data-webrm-rail/.test(pc)) {
+    console.error('39. 还留着 data-webrm-rail 幂等标记 —— 纯 CSS 方案不需要它了');
+    process.exit(1);
+  }
+  if (/attributeFilter:\s*\['style'/.test(pc)) {
+    console.error('39. 还挂着监听内联 style 的 observer —— 纯 CSS 方案不需要重放');
     process.exit(1);
   }
 
@@ -2216,9 +2329,27 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  // ⑧ 把手必须默认隐藏，靠 data-show="1" 才出现
-  if (!/#webrm-railopen\{/.test(p) || !/#webrm-railopen\[data-show="1"\]/.test(p)) {
+  // ⑧ 把手必须默认隐藏、靠 data-show="1" 才出现；并且**钉在左上角**、让标题行让位
+  //    用户反馈："展开和收起的位置差得太远了" —— 收起按钮在左上、把手原来在垂直居中。
+  //    解法不是去量原生按钮的高度（那套已删），而是把把手钉死左上 + 标题行加左内边距。
+  if (!/#webrm-railopen\{/.test(pc) || !/#webrm-railopen\[data-show="1"\]/.test(pc)) {
     console.error('39. 展开把手缺少样式或显示开关（应 data-show="1" 才显示）');
+    process.exit(1);
+  }
+  if (!/top:calc\(4px \+ env\(safe-area-inset-top\)\)/.test(pc) || !/left:calc\(8px \+ env\(safe-area-inset-left\)\)/.test(pc)) {
+    console.error('39. 把手没有钉在左上角并避开刘海/圆角（缺 env(safe-area-inset-*)）');
+    process.exit(1);
+  }
+  if (!/\[class\$="_titleRow"\]\{padding-left:52px\}/.test(pc)) {
+    console.error('39. 收起态没有给标题行让出 52px —— 浮动把手会压住标题');
+    process.exit(1);
+  }
+  if (!/data-webrm-adapt/.test(pc)) {
+    console.error('39. 适配样式表没有 data-webrm-adapt 标识 —— 诊断里认不出它注入没有');
+    process.exit(1);
+  }
+  if (/railAnchorPct|rememberRailAnchor/.test(pc)) {
+    console.error('39. 还留着"量原生按钮高度当锚点"那套 —— 已改为钉死左上角，应删掉');
     process.exit(1);
   }
 
@@ -2234,7 +2365,7 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   if (!/narrow\s*=\s*railNarrow\(\)/.test(p)) {
-    console.error('39. syncMobileRail 没有改用 railNarrow()');
+    console.error('39. syncMobileAdapt 没有改用 railNarrow()');
     process.exit(1);
   }
 
@@ -2244,30 +2375,29 @@ await new Promise((res, rej) => {
     console.error('39. 缺少 railReport 上报 —— 再出问题还是只能靠猜');
     process.exit(1);
   }
-  if (!/railReport\(\)/.test(p) || !/railDebug/.test(idx) || !/path:\s*'\/remote\/railreport'/.test(idx)) {
+  if (!/railReport\(false,/.test(pc) || !/railDebug/.test(idx) || !/path:\s*'\/remote\/railreport'/.test(idx)) {
     console.error('39. 上报没有接上（客户端调用 / 服务端存储 / snapshot 下发 三者缺一）');
     process.exit(1);
   }
 
-  // ⑪ 上报必须等渲染完再发，并且带 DOM 取证 + 改写前后对比
-  //    教训一：最早那次 syncMobileRail 发生在页面初始化，AppFrame 还没渲染出来，
-  //            只报第一次的话永远是 frameFound=false —— 拿它当结论会被带偏一整轮。
-  //    教训二：光有 frameFound 还不够，必须能区分"根本没写"和"写了又被还原"。
-  if (!/railReports/.test(p) || !/railReport\(true\)/.test(p)) {
-    console.error('39. 上报只发第一次就会永远报 frameFound=false —— 必须等渲染完｜并有稳态兜底');
+  // ⑪ 上报必须等渲染完再发（用「_centerCol 是否出现」当就绪信号），
+  //    并且带上 body class 的**实际状态** —— 否则又只能靠猜。
+  //    教训：最早那次同步发生在页面初始化，AppFrame 还没渲染出来，
+  //    只报第一次的话永远是"还没渲染" —— 拿它当结论会被带偏一整轮。
+  if (!/railReports/.test(pc) || !/railReport\(true\)/.test(pc)) {
+    console.error('39. 上报只发第一次就会永远报"还没渲染" —— 必须等渲染完｜并有稳态兜底');
     process.exit(1);
   }
-  if (!/function railProbe\(/.test(p) || !/attrCount/.test(p)) {
-    console.error('39. 找不到 frame 时没有 DOM 取证（railProbe）—— 又只能靠猜');
+  if (!/querySelector\('\[class\*="_centerCol"\]'\)/.test(pc)) {
+    console.error('39. 上报没有用「_centerCol 是否出现」当就绪信号 —— 会把"还没渲染"当成结论');
     process.exit(1);
   }
-  if (!/wrote:\s*wrote/.test(p) || !/tpl1:\s*String\(/.test(p)) {
-    console.error('39. 上报里没有「改写前 / 改写后 / 是否写入」—— 分不清是没写还是被 React 还原了');
+  if (!/function railProbe\(/.test(pc) || !/attrCount/.test(pc)) {
+    console.error('39. 没有 DOM 取证（railProbe）—— 又只能靠猜');
     process.exit(1);
   }
-  // 切第一刀用 indexOf('minmax(')，而不是按空格切（minmax 里带逗号和空格，切了会坏）
-  if (!/indexOf\('minmax\('\)/.test(p)) {
-    console.error("39. 轨道改写没有用 indexOf('minmax(') 定位第一条轨道 —— 正则/空格切法在真实模板上会失手");
+  if (!/bodyMobile:/.test(pc) || !/bodyRailHidden:/.test(pc) || !/adaptCss:/.test(pc)) {
+    console.error('39. 上报里没有 body class 的实际状态（bodyMobile / bodyRailHidden / adaptCss）');
     process.exit(1);
   }
   // 服务端要留多条，才能对比「首次」与「稳态」
@@ -2276,24 +2406,9 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  // ⑫ 把手必须钉在原生开关的同一高度
-  //    用户反馈："展开和收起的位置差得太远了" —— 收起按钮在左上、把手在垂直居中，
-  //    拇指要跨大半个屏幕。锚点要换算成视口百分比，避开 html{zoom:80%} 的坐标问题。
-  if (!/railAnchorPct/.test(p) || !/function rememberRailAnchor\(/.test(p)) {
-    console.error('39. 把手没有锚到原生开关的高度 —— 展开/收起位置又会离得很远');
-    process.exit(1);
-  }
-  if (!/window\.innerHeight\) \* 100/.test(p)) {
-    console.error('39. 锚点没有换算成视口百分比 —— 用 px 会被 html{zoom:80%} 缩放带偏');
-    process.exit(1);
-  }
-  if (!/btn\.style\.top = \(railAnchorPct === null \? 50 : railAnchorPct\) \+ '%'/.test(p)) {
-    console.error('39. 把手没有应用锚点（应写入 top: <pct>%，量不到时退回 50%）');
-    process.exit(1);
-  }
-  // 展开态也要认得出按钮：只有收起态才叫「打开侧边栏」，量高度得靠「收起侧边栏」
-  if (!/收起侧边栏/.test(p) || !/collapse sidebar/.test(p)) {
-    console.error('39. 找原生按钮只认「打开侧边栏」—— 展开态量不到位置，锚点永远学不到');
+  // ⑫ 抄图标要找得到原生按钮：只有收起态才叫「打开侧边栏」，展开态叫「收起侧边栏」
+  if (!/收起侧边栏/.test(pc) || !/collapse sidebar/.test(pc)) {
+    console.error('39. 找原生按钮只认「打开侧边栏」—— 展开态抄不到图标');
     process.exit(1);
   }
 
@@ -2322,7 +2437,7 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏收起态去竖栏 OK（改内联网格第一条轨道 + data-sidebar-collapsed 判定 + 原生按钮复用 + 幂等标记 + 默认开 + 改写前后取证 + 把手锚定原生开关高度与图标）');
+  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + body class 取证）');
 }
 
 proxy.close();
