@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [5.7.1-dev.1] - 2026-10-09
+## [5.7.1-dev.2] - 2026-10-09
 
 ### Fixed — 手机上打开右侧栏没有真的全屏（顺便做了现场取证）
 
@@ -22,14 +22,39 @@ style: { width: fullscreen ? "100vw" : width }
 而那条列在手机上恒为 0 宽轨道（`computeColumns`：`available = viewport - s - 400 < 300 → r = 0`），
 于是它变成"盖住一半对话"的样子。
 
-**修法**：适配层在窄屏直接按官方自己的属性强制铺满（不碰哈希类名）：
+**修法**：适配层按官方自己的属性强制全屏，但**不能用 `vw`** ——
 
 ```css
-body.webrm-mobile [data-sidebar-right-panel]{width:100vw !important;max-width:100vw !important}
+body.webrm-mobile [data-sidebar-right-panel="fullscreen"]{
+  position:fixed !important;inset:0 !important;width:auto !important;max-width:none !important
+}
 ```
 
-⚠ **不能设 `left`**：面板的包含块是那条 **0 宽的列**，`left:0` 等于视口右边缘、会把它铺到屏幕外。
-它本来就带 `right:0`，给 `width:100vw` 就是"从右边缘往左铺满"。
+### ⚠ 差点改错：`html{zoom:80%}` 会把 `vw` 打坏
+
+**第一版修法是 `width:100vw !important`，被真机取证直接否掉。**
+
+探针在真机上抓到两条（都是桌面 Edge 窄窗）：
+
+| innerWidth | DSH 模式 | 面板实际宽 | 面板左边缘 | 内联网格 |
+|---|---|---|---|---|
+| 819 | `push` | 819 | 0 | `56px minmax(400px,1fr) minmax(0px,388px)` |
+| **715** | `fullscreen` | **572** | **143** | `56px minmax(0px,1fr) minmax(0px,0px)` |
+
+看第二条：**`572 = 715 × 0.8`**，`143 = 715 − 572` —— **0.8 就是我们自己注入的
+`html{zoom:80%}`**。
+
+即：`zoom` 生效时，`100vw` 解析成**未缩放的**视口宽（715），而元素按 80% 渲染 → 只剩 572。
+官方让右侧栏全屏用的恰恰是 `width:100vw`，所以**是我们这条 zoom 规则把它的全屏打坏的**
+（我的 `width:100vw !important` 自然也一起被坑）。
+
+而 `zoom` 只在 `@media(max-width:768px)` 生效 —— 所以 ≥768 的窗口看着一切正常（819 那条就是），
+**只有手机上出问题**。
+
+改用 `position:fixed + inset:0`：走 ICB（zoom 感知），完全不碰 `vw`。
+
+> **推论**：任何在 `<=768px` 下依赖 `vw` 的官方布局都会少 20%。这条 zoom 规则是历史上
+> "手机上某些东西莫名偏窄"的一个系统性嫌疑，后续再遇到类似症状先怀疑它。
 
 ### 同时补上右侧栏现场取证
 

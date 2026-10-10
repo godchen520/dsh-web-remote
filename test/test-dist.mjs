@@ -2460,13 +2460,16 @@ await new Promise((res, rej) => {
   //    官方逻辑（dsh-client-ui-sidebar-right）：autoFullscreen = innerWidth < 768，
   //    只有它成立时面板才拿到 width:100vw；否则按 width 部分宽度挂在右侧栏列
   //    （手机上那条列恒为 0 宽）的右边缘上，盖住一半对话。
-  if (!/\[data-sidebar-right-panel\]\{width:100vw !important;max-width:100vw !important\}/.test(pc)) {
-    console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— innerWidth >= 768 时官方只给它部分宽度');
+  if (!/\[data-sidebar-right-panel="fullscreen"\]\{position:fixed !important;inset:0 !important/.test(pc)) {
+    console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— 官方只在 innerWidth<768 时给它 100vw');
     process.exit(1);
   }
-  // 必须锚在 right:0（0 宽列的右边缘 = 视口右边缘）上铺开 —— 设 left 会跑到屏幕外
-  if (/\[data-sidebar-right-panel\]\{[^}]*left:/.test(pc)) {
-    console.error('39. 右侧栏规则里设了 left —— 它的包含块是 0 宽的列，会铺到屏幕外去');
+  // ⚠ 这条规则里**绝不能用 vw**：我们自己的 '@media(max-width:768px){html{zoom:80%}}'
+  //    会把 vw 打坏。真机取证：innerWidth=715、官方已判 fullscreen、面板实际只有
+  //    572 = 715×0.8、左边缘 143 = 715-572 —— 第一版用 width:100vw 修就是栽在这。
+  //    正确做法是 position:fixed + inset:0（走 ICB，是 zoom 感知的）。
+  if (/\[data-sidebar-right-panel[^\]]*\]\{[^}]*vw/.test(pc)) {
+    console.error('39. 右侧栏规则里用了 vw —— html{zoom:80%} 会让它少 20%（实测 715 → 572）');
     process.exit(1);
   }
   if (!/function rightbarProbe\(/.test(pc) || !/out\.panelMode\s*=/.test(pc) || !/out\.panelW\s*=/.test(pc)) {
