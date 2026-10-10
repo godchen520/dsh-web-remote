@@ -74,3 +74,14 @@ node <workspace>/rail-check.mjs     # 窄屏适配层的行为桩（30 条）
   `navCell` 是 `clsx()` 拼类，只能包含匹配
 - 所有规则挂在 `body.webrm-mobile` 下（style 标签常驻 head，不限定会改坏桌面端）
 - 收起/展开必须**立刻**响应（盯 `data-sidebar-collapsed`），定时器只能当兜底
+- **绝不给根节点加 `zoom`**（历史上有过 `@media(max-width:768px){html{zoom:80%}}`，已删）。
+  它会把 `vw` 打坏：真机 `innerWidth=715`、官方判 fullscreen，而面板只有 `572 = 715×0.8`。
+  官方在窄屏用 `width:100vw` 给右侧栏全屏 → 那条 zoom 让它永远铺不满；而且**只在
+  `<=768px` 出现**，`>=768` 看着完全正常，排查成本极高。要放大请走官方字体设置。
+  守卫 #39 ⑪ 会拦。同理，右侧栏那条规则里也**不许出现 `vw`**。
+- 右侧栏是否全屏由**官方**决定：`autoFullscreen = innerWidth < 768`（`dsh-client-ui-sidebar-right`），
+  全屏时给 `width:100vw`，非全屏走 `push`（部分宽度挂在 0 宽的列右边缘上）。我们用
+  `[data-sidebar-right-panel="fullscreen"]` + `position:fixed;inset:0` 兜底。
+- 排查这类问题**先加探针再改**：把 `innerWidth` / 面板模式 / 面板实际宽度与位置 /
+  轨道的 `grid-template-columns` 一次报回来（`rightbarProbe` + `watchRightbar`）。
+  这一轮就是靠它一眼看出 `572 = 715 × 0.8` 的。

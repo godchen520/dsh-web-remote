@@ -2485,7 +2485,17 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 右侧栏窄屏铺满与取证 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + 收起/展开即时响应）');
+  // ⑪ **绝不能**给根节点加 zoom（历史上有一条 '@media(max-width:768px){html{zoom:80%}}'）
+  //    用户决定删掉它（官方设置里本来就有字体大小设置）。
+  //    删它的真正理由是它会**打坏 vw**：真机取证 innerWidth=715、官方判 fullscreen，
+  //    面板实际只有 572 = 715×0.8。官方在窄屏用 width:100vw 给右侧栏全屏，
+  //    所以那条 zoom 让右侧栏永远铺不满 —— 而且只在 <=768px 出现，>=768 看着正常。
+  if (/html\s*\{\s*zoom\s*:/i.test(pc) || /zoom\s*:\s*0?\.\d/i.test(pc)) {
+    console.error('39. 又给根节点加了 zoom —— 它会把 vw 打坏（实测 715 → 572），要放大请走官方字体设置');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 右侧栏窄屏铺满与取证 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + 收起/展开即时响应 + 无根节点 zoom）');
 }
 
 // 40. 版本号约定：本地开发一律 `<目标版本>-dev.<N>`，且 CHANGELOG 必须有对应条目
