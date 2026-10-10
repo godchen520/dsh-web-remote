@@ -2455,7 +2455,34 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + body class 取证 + 收起/展开即时响应）');
+  // ⑩ 右侧栏在窄屏必须真的铺满
+  //    用户反馈："手机打开右侧栏明明是全屏模式，但右侧栏没有真的全屏。"
+  //    官方逻辑（dsh-client-ui-sidebar-right）：autoFullscreen = innerWidth < 768，
+  //    只有它成立时面板才拿到 width:100vw；否则按 width 部分宽度挂在右侧栏列
+  //    （手机上那条列恒为 0 宽）的右边缘上，盖住一半对话。
+  if (!/\[data-sidebar-right-panel\]\{width:100vw !important;max-width:100vw !important\}/.test(pc)) {
+    console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— innerWidth >= 768 时官方只给它部分宽度');
+    process.exit(1);
+  }
+  // 必须锚在 right:0（0 宽列的右边缘 = 视口右边缘）上铺开 —— 设 left 会跑到屏幕外
+  if (/\[data-sidebar-right-panel\]\{[^}]*left:/.test(pc)) {
+    console.error('39. 右侧栏规则里设了 left —— 它的包含块是 0 宽的列，会铺到屏幕外去');
+    process.exit(1);
+  }
+  if (!/function rightbarProbe\(/.test(pc) || !/out\.panelMode\s*=/.test(pc) || !/out\.panelW\s*=/.test(pc)) {
+    console.error('39. 缺少右侧栏取证（rightbarProbe）—— 再出问题还是只能猜');
+    process.exit(1);
+  }
+  if (!/function watchRightbar\(/.test(pc) || !/watchRightbar\(\)/.test(pc)) {
+    console.error('39. 缺少右侧栏观察器（或定义了没调用）—— 打开右侧栏那一刻的现场抓不到');
+    process.exit(1);
+  }
+  if (!/attributeFilter:\s*\['data-sidebar-right-panel'\]/.test(pc)) {
+    console.error('39. 右侧栏观察器没有盯 data-sidebar-right-panel');
+    process.exit(1);
+  }
+
+  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 右侧栏窄屏铺满与取证 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + 收起/展开即时响应）');
 }
 
 // 40. 版本号约定：本地开发一律 `<目标版本>-dev.<N>`，且 CHANGELOG 必须有对应条目
@@ -2489,10 +2516,38 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // ④ 最新的 CHANGELOG 条目必须就是当前版本（否则是忘了改号，或改了号没写条目）
-  const first = /^## \[([^\]]+)\]/.exec(changelog.slice(changelog.indexOf('## [')));
-  if (!first || first[1] !== v) {
-    console.error('40. CHANGELOG 最新条目是 [' + (first ? first[1] : '无') + ']，与 package.json 的 ' + v + ' 不一致');
+  const heads = [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].map((m) => m[1]);
+  if (!heads.length || heads[0] !== v) {
+    console.error('40. CHANGELOG 最新条目是 [' + (heads[0] || '无') + ']，与 package.json 的 ' + v + ' 不一致');
     process.exit(1);
+  }
+
+  // ⑤ 版本号只增不减（见 docs/RELEASING.md）
+  //    这条是**最容易犯又最致命**的：市场会拿版本号判定新旧，号往回走 = 用户永远收不到
+  //    更新提示（数据看着一切正常，就是没提示）。我差点把已发布的 5.7.0 之后的修复
+  //    写成 5.7.0-dev.3（低于 5.7.0）。
+  //    规则：三元组必须严格递增；三元组相同时只允许 dev.N 递增（不能回到已发布的正式号）。
+  const parseV = (s) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$/.exec(s);
+    return m ? { tri: [+m[1], +m[2], +m[3]], dev: m[4] === undefined ? null : +m[4] } : null;
+  };
+  const cmpTri = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+  if (heads.length > 1) {
+    const cur = parseV(heads[0]);
+    const prev = parseV(heads[1]);
+    if (cur && prev) {
+      const d = cmpTri(cur.tri, prev.tri);
+      if (d < 0) {
+        console.error('40. 版本号往回走了：' + heads[0] + ' 低于上一条 ' + heads[1]
+          + ' —— 市场会判定成旧版本，用户收不到更新提示（见 docs/RELEASING.md）');
+        process.exit(1);
+      }
+      if (d === 0 && (prev.dev === null || cur.dev === null || cur.dev <= prev.dev)) {
+        console.error('40. 版本号没有前进：' + heads[0] + ' 相对上一条 ' + heads[1]
+          + ' —— 三元组相同时只允许 dev.N 递增，且不能回到已发布的正式号');
+        process.exit(1);
+      }
+    }
   }
 
   console.log('40. 版本号约定 OK（' + v + ' —— 格式合法 + CHANGELOG 有对应条目且为最新）');

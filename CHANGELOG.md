@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.1-dev.1] - 2026-10-09
+
+### Fixed — 手机上打开右侧栏没有真的全屏（顺便做了现场取证）
+
+用户反馈："手机打开右侧栏明明是全屏模式，但右侧栏没有真的全屏。"
+
+**根因在官方**（`dsh-client-ui-sidebar-right`）：
+
+```js
+const autoFullscreen = viewportWidth < 768;   // viewportWidth = window.innerWidth
+const fullscreen = autoFullscreen || surface?.layout.mode === "fullscreen";
+const track = shown && !autoFullscreen;       // 不全屏时它才要一条轨道
+style: { width: fullscreen ? "100vw" : width }
+```
+
+也就是说**只有 `window.innerWidth < 768` 时它才给自己 `100vw`**。一旦 ≥768，右侧栏走 "push"
+模式：按 `width` 给一个部分宽度、以 `position:absolute; right:0` 挂在右侧栏列的右边缘上 ——
+而那条列在手机上恒为 0 宽轨道（`computeColumns`：`available = viewport - s - 400 < 300 → r = 0`），
+于是它变成"盖住一半对话"的样子。
+
+**修法**：适配层在窄屏直接按官方自己的属性强制铺满（不碰哈希类名）：
+
+```css
+body.webrm-mobile [data-sidebar-right-panel]{width:100vw !important;max-width:100vw !important}
+```
+
+⚠ **不能设 `left`**：面板的包含块是那条 **0 宽的列**，`left:0` 等于视口右边缘、会把它铺到屏幕外。
+它本来就带 `right:0`，给 `width:100vw` 就是"从右边缘往左铺满"。
+
+### 同时补上右侧栏现场取证
+
+这次的教训是**判断依据在"打开右侧栏那一刻"才产生**（`innerWidth` 与 768 的关系），
+而原来的上报只在页面加载时发两条 —— 永远抓不到那个现场，于是"为什么没全屏"又只能猜。
+
+新增 `rightbarProbe()` + `watchRightbar()`：盯着 `data-sidebar-right-panel` 一出现就立刻
+同步一次，并把 `innerWidth` / `clientWidth` / 面板模式（fullscreen 还是 push）/
+面板实际宽度与位置 / 轨道的 `grid-template-columns` 一并回报（最多 3 次）。
+
+顺带**推翻了一个我自己的错误假设**：我原本怀疑 `html{zoom:80%}` 会把 `window.innerWidth`
+放大 1.25 倍从而越过 768 —— 真机取证显示 `w=616 dw=616`（相等），现代 Chrome 的 `zoom`
+**不会**影响 `window.innerWidth`。差点按错的方向改。
+
 ## [5.7.0] - 2026-10-08
 
 ### Fixed — 展开把手响应有延迟（收起/展开后要等一会才变）
