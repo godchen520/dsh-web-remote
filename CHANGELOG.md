@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.1-dev.6] - 2026-10-09
+
+### Changed — 机器人通道的 `/链接` 提示：不再让用户"调整页面缩放"，改为指引官方字号设置
+
+用户："第三方软件输入/链接的回复也应该改一下了，把调整页面缩放改成在通用设置里改字号。"
+
+插件在窄屏注入的 `html{zoom:80%}` 已删除（见 5.7.1-dev.3 / dev.5），
+所以旧提示 *"手机浏览器可根据需要调整页面缩放…"* 已经指向一个我们不再做的方向 ——
+而且那条 zoom 本身会把 `vw` 打坏。改为：
+
+```
+[想要更舒服的字号，可在「设置 → 通用设置」里调整「字号大小」]
+```
+
+**文案里的位置是核实过的**，不是猜的：
+
+- 官方标签 `fontSize.title = "字号大小"`（在 `dsh-client-ui-theme`）
+- 该包源码注释：`Font-size preference row registered into the General section item slot`
+  → 也就是**通用设置**分区 ✓
+
+守卫 #33 相应更新，并加了一条新断言：**`lib/index.mjs` 里再出现「页面缩放」直接判失败**
+（防止有人把旧提示抄回来）。文案仍只允许出现在 `LINK_MOBILE_HINT` 定义那一处，
+5 个通道（微信 / 飞书 / Telegram / QQ / 钉钉）继续共用同一条。
+
 ## [5.7.1-dev.5] - 2026-10-09
 
 ### Reverted — 撤掉 dev.4 给右侧栏加的底色（它就是"窄屏变纯色"的原因）

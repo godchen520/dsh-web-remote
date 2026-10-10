@@ -1593,12 +1593,12 @@ await new Promise((res, rej) => {
 
   // ④ /链接 的通用提示必须 5 通道共用；微信专属提示必须单独成一个常量
   if (!/const LINK_MOBILE_HINT = /.test(p)) {
-    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机缩放提示应共用（原先只有微信有）');
+    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机端字号提示应共用（原先只有微信有）');
     process.exit(1);
   }
   // 两条链接提示都必须存在，且**都并进正文**由 5 通道共用
   if (!/const LINK_MOBILE_HINT = /.test(p)) {
-    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机缩放提示应共用（原先只有微信有）');
+    console.error('33. 缺少 LINK_MOBILE_HINT —— 手机端字号提示应共用（原先只有微信有）');
     process.exit(1);
   }
   if (!/const LINK_BROWSER_HINT = /.test(p)) {
@@ -1606,9 +1606,15 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // 提示文案只允许出现在常量定义那一处（别处一律引用常量）
-  const rawMobile = (p.match(/手机浏览器可根据需要调整页面缩放/g) || []).length;
+  const rawMobile = (p.match(/想要更舒服的字号，可在「设置 → 通用设置」里调整「字号大小」/g) || []).length;
   if (rawMobile !== 1) {
-    console.error('33. 缩放提示出现 ' + rawMobile + ' 次 —— 应只在 LINK_MOBILE_HINT 定义里出现 1 次');
+    console.error('33. 字号提示出现 ' + rawMobile + ' 次 —— 应只在 LINK_MOBILE_HINT 定义里出现 1 次');
+    process.exit(1);
+  }
+  // ⚠ 不能再提示"调整页面缩放"：插件已经删掉 html{zoom:80%} 那条规则，
+  //    提示用户去缩放页面等于把人往一个我们已经不做的方向引（而且 zoom 会打坏 vw）。
+  if (/调整页面缩放|页面缩放/.test(p)) {
+    console.error('33. 文案里还在提"页面缩放" —— zoom 规则已删除，应改为指引「设置 → 通用设置 → 字号大小」');
     process.exit(1);
   }
   const rawBrowser = (p.match(/内置浏览器打开可能丢失验证信息/g) || []).length;
