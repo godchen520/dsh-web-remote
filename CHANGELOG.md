@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.1-dev.4] - 2026-10-09
+
+### Fixed — 右侧栏铺满后，底下的内容"透上来"
+
+用户截图反馈：右侧栏全屏了（"开始" + 卡片确实占满），但**主对话 composer 里的两个附件卡片
+透到了右侧栏上** —— "红框的地方透过来了"。
+
+根因：**官方面板自己没有不透明背景**。`.P3OORG_panel` 只写了
+`position/display/flex-direction`，背景是由它里面的 dock pane 各自画的。
+以前面板只有部分宽度（还被 `zoom` 缩到 80%），透出来的区域小、没被注意到；
+现在它铺满整屏，**它自己没画到的地方（底部 composer 一带）就把底下的主对话露出来了**。
+
+修法：给铺满态补一层不透明底 + 抬一层 z-index ——
+
+```css
+body.webrm-mobile [data-sidebar-right-panel="fullscreen"]{
+  position:fixed !important;inset:0 !important;width:auto !important;max-width:none !important;
+  background:var(--dsw-alias-bg-base) !important;   /* 官方自己的表面 token，深色主题自动跟随 */
+  z-index:25 !important                              /* 高于 overlayLayer(20)，低于浮动把手(9000)/设置弹窗(1000) */
+}
+```
+
+守卫 #39 ⑩ 相应加了两条断言：铺满态必须带不透明底与 z-index，
+免得以后有人"简化"掉背景又把透底引回来。
+
+> 注：这不算我引入的 bug —— 官方自己的 fullscreen 分支同样只给 `width:100vw`、不带背景。
+> 只是以前它压根没铺满过（被 zoom 坑），所以没人看见。
+
 ## [5.7.1-dev.3] - 2026-10-09
 
 ### Removed — 删掉 `@media(max-width:768px){html{zoom:80%}}`（"移动端视觉缩小"）

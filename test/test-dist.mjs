@@ -2464,6 +2464,17 @@ await new Promise((res, rej) => {
     console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— 官方只在 innerWidth<768 时给它 100vw');
     process.exit(1);
   }
+  // 铺满还不够：官方面板自己没有不透明背景（背景由里面的 dock pane 画），
+  // 铺满之后它没画到的地方会把底下的主对话透上来 ——
+  // 用户截图："红框的地方透过来了"（主对话 composer 的附件卡片透到右侧栏上）。
+  if (!/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*background:var\(--dsw-alias-bg-base\) !important/.test(pc)) {
+    console.error('39. 右侧栏铺满后没有不透明底 —— 底下主对话的内容会透上来（附件卡片就这么透出来的）');
+    process.exit(1);
+  }
+  if (!/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*z-index:25 !important/.test(pc)) {
+    console.error('39. 右侧栏没有抬 z-index —— 会画在中间列下面，铺满也盖不住');
+    process.exit(1);
+  }
   // ⚠ 这条规则里**绝不能用 vw**：我们自己的 '@media(max-width:768px){html{zoom:80%}}'
   //    会把 vw 打坏。真机取证：innerWidth=715、官方已判 fullscreen、面板实际只有
   //    572 = 715×0.8、左边缘 143 = 715-572 —— 第一版用 width:100vw 修就是栽在这。
