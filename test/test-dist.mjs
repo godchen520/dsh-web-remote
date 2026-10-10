@@ -2464,15 +2464,18 @@ await new Promise((res, rej) => {
     console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— 官方只在 innerWidth<768 时给它 100vw');
     process.exit(1);
   }
-  // 铺满还不够：官方面板自己没有不透明背景（背景由里面的 dock pane 画），
-  // 铺满之后它没画到的地方会把底下的主对话透上来 ——
-  // 用户截图："红框的地方透过来了"（主对话 composer 的附件卡片透到右侧栏上）。
-  if (!/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*background:var\(--dsw-alias-bg-base\) !important/.test(pc)) {
-    console.error('39. 右侧栏铺满后没有不透明底 —— 底下主对话的内容会透上来（附件卡片就这么透出来的）');
+  // ⚠ 反过来：**绝不要**给这条规则加底色。踩过 —— 加了 background:var(--dsw-alias-bg-base)
+  // 之后，窄屏下（官方把右侧栏判成 fullscreen）这个 fixed;inset:0 的元素等于
+  // 「给整个视口铺一块纯色矩形」，整页被盖住变成一色块：
+  // 用户："当宽度缩小到一定程度就变纯色了"（深色浅色都一样）。
+  // 而且面板自己本来就是不透明的（用户观察："正文没有透过来"）——
+  // 透上来的卡片是**层级**问题，给 z-index 就够了。
+  if (/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*background/.test(pc)) {
+    console.error('39. 右侧栏规则里加了底色 —— fixed;inset:0 + 底色 = 整页变一块纯色（踩过）');
     process.exit(1);
   }
   if (!/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*z-index:25 !important/.test(pc)) {
-    console.error('39. 右侧栏没有抬 z-index —— 会画在中间列下面，铺满也盖不住');
+    console.error('39. 右侧栏没有抬 z-index —— composer 的 8~10 会压在它上面（附件卡片就这么透出来的）');
     process.exit(1);
   }
   // ⚠ 这条规则里**绝不能用 vw**：我们自己的 '@media(max-width:768px){html{zoom:80%}}'
