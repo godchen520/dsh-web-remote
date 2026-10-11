@@ -64,28 +64,37 @@ node <workspace>/rail-check.mjs     # 窄屏适配层的行为桩（30 条）
 静默成功、不问一句** —— 也就是说"不小心推上去"这个失误在这里是**默认行为**，
 没有任何阻力挡着它。只能靠这条纪律。踩过：我连续推了 9 个提交。
 
-## 部署（改完不部署 = 没改）
+## 部署：两个 profile 用 `link:` 常驻 —— **不要再加 pin**
 
-**提交到本地** → 两个 profile 都指向**本地路径**（避免依赖 GitHub SHA）：
+用户决定（2026-10-11）：**"不要 pin 了，我手动更新。"**
+
+两个 profile 的依赖固定为本地路径，**不要再改成 `github:...#<sha>`**：
 
 ```jsonc
 "dsh-web-remote": "link:E:\\DeepSeek Harness\\.dsh\\packages\\dsh-web-remote"
 ```
 
+安装形态是 **Junction**（`node_modules/dsh-web-remote` → 上面的 checkout）。
+所以：
+
 ```
 编辑 checkout → npm test → git commit（**不 push**）
-  → profiles/desktop 与 profiles/web **两个都**改成/保持本地 link
-  → 各自 pnpm install
-  → 核对安装副本与工作树一致
+  → 重启 DSH 即生效
 ```
 
-**只更新一个 profile 会让另一端看不到改动**（桌面端走的是 `desktop` profile，踩过）。
-`pnpm install` 会把手动拷进去的文件按 pin 还原 —— 所以要么走本地 link，要么等
-**GitHub 会话推完、再由它或我们换 SHA**；**不要自己 push 去凑那个 SHA**。
+**不用 `pnpm install`、不用换 pin、不碰 GitHub** —— Junction 指向的是活文件。
+（只有当 profile 清单被市场"重装"覆盖、或 node_modules 被重建时，才需要重跑一次
+`pnpm install` 把 Junction 建回来。）
 
-> 历史包袱：这两个 profile 长期用的是 `github:godchen520/dsh-web-remote#<sha>`。
-> 那种 pin 要求提交已在远端 —— 这正是我当初越界 push 的直接诱因。
-> 改用 `link:` 本地路径可以彻底断掉这条依赖。
+⚠ 为什么原来会有 pin：两个 profile 长期写的是 `github:godchen520/dsh-web-remote#<sha>`，
+**那种 pin 要求提交必须已经在 GitHub 上** —— 这正是我当初越界 push 的直接诱因。
+改成 `link:` 之后这条依赖彻底断了。
+
+⚠ 副作用（用户已知并接受）：插件管理器会把这种来源标成 **「本地开发」**（卡片上显示
+`../packages/dsh-web-remote`），市场不再给它推更新提示 —— **更新由用户手动做**。
+
+**两个 profile 都要指向同一个 checkout**（桌面端走的是 `desktop` profile）——
+只改一个会让另一端看不到改动，踩过。
 
 ## 窄屏适配层的既有事实（改之前先读）
 
