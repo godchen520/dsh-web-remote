@@ -62,6 +62,22 @@
   - **标题**：`v5.8.0 — <主题>`
   - **正文**：写**给用户看的介绍**（不是 CHANGELOG 原文）；技术细节折叠进 `<details>`
   - 破坏性版本加**警告横幅**
+  - ⚠️ **安装命令必须写成不钉 ref 的形式**（见下方规则），否则用户照抄后**收不到更新提示**
+
+### ⚠️ 安装命令的铁律：不要钉标签
+
+| 写法 | 用户装完能否收到更新提示 |
+|------|:---:|
+| `pnpm add github:godchen520/dsh-web-remote` | ✅ **能**（推荐） |
+| `pnpm add github:godchen520/dsh-web-remote#<40位SHA>` | ✅ 能 |
+| `pnpm add github:godchen520/dsh-web-remote#main` | ✅ 能 |
+| `pnpm add github:godchen520/dsh-web-remote#v5.8.0` | ❌ **不能**（标签会被市场当 ref 解析，`latest` 恒等于 `current`） |
+
+**原因**：市场判断 GitHub 安装是否有更新，是拿「spec 里写的那个 ref 指向的提交」和「你已装的提交」比。
+钉标签时，那个 ref 就是你装的版本自己 → 永远相等 → 永远显示「已是最新」。
+
+> 所以：**README / Release 正文里给用户的命令都不钉 ref**；
+> 只有 profile 自己的 `package.json` 用 `#<SHA>`（那是精确锁定，不影响更新提示）。
 
 ---
 
