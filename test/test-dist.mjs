@@ -2748,6 +2748,49 @@ await new Promise((res, rej) => {
   console.log('43. 端口校准 OK（向 webServer.getOrigin() 校准 + 写回 targetPort + 在建代理之前 + 让位显式配置）');
 }
 
+// 44. 监听通知：每个通道都必须记录"为什么没发"，QQ 的目标丢失必须能自愈
+//
+// 踩过的坑（2026-10-24，用户"从桌面端换到 web 端，QQ 监听又没反应了"）：
+//   QQ 分支原来是 `if (qqbotMonitorMode && qqbotChannel && health !== 'down') { if (qqTarget) {...} }`
+//   —— **两个 if 都没有 else**，所以分支没进时 monitorLastSendResult 里**一个字都不留**。
+//   于是 /remote/diag 只显示 `weixin 跳过…`，完全看不出 QQ 去哪了。
+//   实测真相：API 能发（HTTP 200）、store 里 lastTarget 也在、/remote/info 显示 connected，
+//   但**内存里的 target 是空的**（那次 qqbotRestoreTarget() 没生效）。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① QQ 必须有"跳过原因"记录（不能静默）
+  if (!/'qqbot 跳过: '/.test(code)) {
+    console.error('44. QQ 监听分支没有"跳过原因"记录 —— 分支没进时 /remote/diag 里会一个字都没有（踩过）');
+    process.exit(1);
+  }
+  // ② 目标为空时必须能从持久化自愈
+  if (!/store\.load\(\)\.qqbot \|\| \{\}\)\.lastTarget/.test(code)) {
+    console.error('44. QQ 目标为空时没有从持久化自愈 —— 换了实例后监听会一直静默失效');
+    process.exit(1);
+  }
+  if (!/setLastTarget\(_lt\)/.test(code)) {
+    console.error('44. 自愈没有真的把持久化目标挂回去（setLastTarget）');
+    process.exit(1);
+  }
+  // ③ 自愈必须发生在 send 之前（先救回来再发，当轮就能推出去）
+  const healAt = code.search(/setLastTarget\(_lt\)/);
+  const sendAt = code.search(/qqbotChannel\.send\(qqTarget, text, \{ md: true \}\)/);
+  if (healAt < 0 || sendAt < 0 || healAt > sendAt) {
+    console.error('44. 自愈在发送之后 —— 当轮仍然推不出去');
+    process.exit(1);
+  }
+  // ④ 其它通道已有"跳过"记录的不能丢（回归保护）
+  for (const ch of ['weixin 跳过', 'feishu 跳过', 'dingtalk 跳过']) {
+    if (code.indexOf(ch) < 0) {
+      console.error('44. ' + ch + ' 记录不见了 —— 排查时又会看不到该通道的去向');
+      process.exit(1);
+    }
+  }
+  console.log('44. 监听通道可观测性 OK（QQ 有跳过原因 + 目标为空可自愈 + 自愈在发送前 + 其它通道跳过记录还在）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');

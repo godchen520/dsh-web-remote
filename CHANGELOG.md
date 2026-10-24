@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## [5.7.6] - 2026-10-24
+
+### Fixed — 从桌面端换到 web 端后，QQ 监听一条都不推（内存目标丢失，且诊断里毫无痕迹）
+
+用户："换到 web 端后 QQ 监听没反应"
+
+**取证**（`/remote/diag` 的 `monitorLastSendResult`）：
+
+```
+weixin 跳过: ...
+（QQ 一个字都没有）      ← 完全看不出 QQ 去哪了
+```
+
+而同一时刻三项检查全部正常：
+
+| 检查 | 结果 |
+|---|---|
+| `/remote/info` 的 `qqbot` | `connected` ✅ |
+| store 里的 `qqbot.lastTarget` | 在 ✅ |
+| 直接调 QQ API 发消息 | HTTP 200 ✅ |
+
+→ **通道本身没问题，是内存里的 `lastTarget` 空了**（启动那次 `qqbotRestoreTarget()` 没生效）。
+
+**为什么之前完全查不出来**：QQ 分支原来是
+
+```js
+if (qqbotMonitorMode && qqbotChannel && qqbotChannel.status().health !== 'down') {
+  var qqTarget = qqbotChannel.getLastTarget();
+  if (qqTarget) { ... }
+}
+```
+
+**两个 if 都没有 else** —— 分支没进时 `monitorLastSendResult` 里**一个字都不留**，
+于是 `/remote/diag` 只能看到 `weixin 跳过…`，完全看不出 QQ 去哪了。这次一半的时间浪费在这上面。
+
+**修法（两件事）**：
+
+1. **自愈**：内存目标为空时，从 `store.load().qqbot.lastTarget` 读回来，
+   用 `setLastTarget()` 挂上 —— 之后就不用再管。日志会打印：
+   `[qqbot] 监听推送目标为空，已从持久化自愈恢复（<scope>）`
+2. **补全诊断**：把「为什么没发」写进 `monitorLastSendResult`（照钉钉那条的写法），
+   四种原因分别写明 —— `通道实例不存在` / `通道已断开` / `状态读取失败: xxx` /
+   `还没有会话目标（先给机器人发一条消息）`
+
+### 新增测试守卫
+
+**守卫 #44「监听通道可观测性」** —— 断言：
+
+- QQ 分支必须有「跳过原因」记录（不能再静默）
+- 目标为空时确实从 `store.load().qqbot.lastTarget` 自愈
+- 自愈发生在发送之前
+- 其它通道（微信 / 飞书 / Telegram / 钉钉）的跳过记录仍在
+
 ## [5.7.5] - 2026-10-21
 
 ### Fixed — 桌面端公网/局域网链接全部 `502 Bad Gateway`（web 端正常）
