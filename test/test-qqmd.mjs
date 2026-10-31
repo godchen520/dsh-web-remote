@@ -17,7 +17,7 @@
 //
 //   所以现在的测试重点变了：**断言那些语法原样通过、不被改写** ——
 //   防止以后有人又照着文档"补降级"。另外保留真正必要的两项（删图片引用、--- → ***）。
-import { toQQMarkdown } from '../lib/qqbot.mjs';
+import { toQQMarkdown, makeQQKeyboard, QQ_COMMAND_MENU, QQ_NOTIFY_MENU } from '../lib/qqbot.mjs';
 
 let failed = 0;
 function eq(name, got, want) {
@@ -157,9 +157,66 @@ function hasNot(name, got, needle) {
   eq('幂等', toQQMarkdown(once), once);
 }
 
+// ══ 三、内嵌键盘（按钮）构造 —— makeQQKeyboard ════════════════
+//
+// 踩过的坑（2026-10-30，用户："没有按钮"）：按钮 id 原先用**行内序号**生成
+// （'b' + idx），4 行 10 个按钮只有 b0/b1/b2 三个不同 id。官方要求
+// "id 按钮 ID。同一键盘内唯一" —— id 撞车后**整块键盘被静默丢弃**：
+// 接口照样 HTTP 200、消息正常送达、一个按钮都不显示、日志无任何报错。
+// 所以这里把"id 唯一"当成硬断言。
+
+// ── 12. 多行按钮的 id 必须全局唯一（最容易踩的坑） ─────────────
+{
+  const kb = makeQQKeyboard([
+    [{ label: 'A', data: '/a' }, { label: 'B', data: '/b' }],
+    [{ label: 'C', data: '/c' }, { label: 'D', data: '/d' }],
+    [{ label: 'E', data: '/e' }],
+  ]);
+  const ids = kb.content.rows.flatMap((r) => r.buttons.map((b) => b.id));
+  eq('按钮数量', String(ids.length), '5');
+  eq('id 全局唯一（多行不撞车）', String(new Set(ids).size), '5');
+  hasNot('id 不是行内序号', ids.join(','), 'b0,b1,b0');
+}
+
+// ── 13. 调用方显式传的重复 id 也要去重 ─────────────────────────
+{
+  const kb = makeQQKeyboard([
+    [{ id: 'same', label: 'A', data: '/a' }, { id: 'same', label: 'B', data: '/b' }],
+  ]);
+  const ids = kb.content.rows[0].buttons.map((b) => b.id);
+  eq('显式重复 id 被去重', String(new Set(ids).size), '2');
+}
+
+// ── 14. label 超 10 字符要截断（QQ 硬限制，超了服务端拒） ───────
+{
+  const kb = makeQQKeyboard([[{ label: '这是一个超过十个字符的按钮名字', data: '/x' }]]);
+  const label = kb.content.rows[0].buttons[0].render_data.label;
+  eq('label 截断到 10', String(Array.from(label).length), '10');
+}
+
+// ── 15. permission / enter 的默认值（这俩决定了"能不能点""点了发不发"） ──
+{
+  const b = makeQQKeyboard([[{ label: 'X', data: '/x' }]]).content.rows[0].buttons[0];
+  eq('默认 permission.type', String(b.action.permission.type), '2'); // 所有人
+  eq('默认 enter', String(b.action.enter), 'true');                  // 点一下直接发
+  eq('默认 action.type', String(b.action.type), '2');                // 指令按钮
+  eq('data 原样', b.action.data, '/x');
+}
+
+// ── 16. 真正的菜单（指令/通知）id 也全唯一 ─────────────────────
+{
+  for (const [name, menu] of [['指令菜单', QQ_COMMAND_MENU], ['通知菜单', QQ_NOTIFY_MENU]]) {
+    const ids = makeQQKeyboard(menu).content.rows.flatMap((r) => r.buttons.map((b) => b.id));
+    eq(name + ' 的 id 全唯一', String(new Set(ids).size), String(ids.length));
+    const longLabel = makeQQKeyboard(menu).content.rows.flatMap((r) => r.buttons)
+      .filter((b) => Array.from(b.render_data.label).length > 10);
+    eq(name + ' 无超长 label', String(longLabel.length), '0');
+  }
+}
+
 console.log('');
 if (failed) {
-  console.error('QQ markdown 单测失败：' + failed + ' 项');
+  console.error('QQ markdown / 键盘 单测失败：' + failed + ' 项');
   process.exit(1);
 }
-console.log('QQ markdown 单测全部通过（11 组）');
+console.log('QQ markdown + 键盘 单测全部通过（16 组）');

@@ -921,8 +921,11 @@ await new Promise((res, rej) => {
   }
 
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
-  if (idx.indexOf("'p2p未打通'") < 0) {
-    console.error('25. index.mjs 里没有「p2p未打通」文案 —— P2P 没建立时会给一个打不开的地址');
+  // 2026-10-31：文案从 `p2p未打通` 调整为「Tailscale P2P：未打通（原因）」——
+  // 用户要求"当 tailscale 没有连通时就不要按钮和链接了，按之前的写没有通"，
+  // 所以这里断言的是**"未打通"这个词必须出现 + 原因要带上**，而不是死抠旧措辞。
+  if (idx.indexOf("'未打通'") < 0 && idx.indexOf('未打通') < 0) {
+    console.error('25. index.mjs 里没有「未打通」文案 —— P2P 没建立时会给一个打不开的地址');
     process.exit(1);
   }
   if (idx.indexOf('p2p.reason') < 0) {
@@ -930,11 +933,13 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // 无参数：5 个通道的提示与正文完全相同，不需要各传各的
-  if (idx.indexOf('function linkCommandText()') < 0 || idx.indexOf('function p2pStateNow()') < 0) {
+  // 2026-10-31 起 linkCommandText 变成了 async（要多问一次 tailscale serve 状态，
+  // 才能在 QQ 里给出「域名 https」那条链接），所以匹配不限 async / 参数
+  if (idx.indexOf('function linkCommandText') < 0 || idx.indexOf('function p2pStateNow()') < 0) {
     console.error('25. index.mjs 缺少 linkCommandText / p2pStateNow 共用实现');
     process.exit(1);
   }
-  const returns = (idx.match(/return linkCommandText\(/g) || []).length;
+  const returns = (idx.match(/return \(await \)\?linkCommandText\(/g) || idx.match(/return await linkCommandText\(/g) || []).length;
   if (returns < 5) {
     console.error('25. 只有 ' + returns + ' 处返回共用文案 —— 5 个通道（微信/飞书/纸飞机/QQ官方/钉钉）都要用');
     process.exit(1);
@@ -1623,13 +1628,21 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // 5 通道 × 2 条分支 = 10 处，且都必须是**无参数**调用（参数一多就会各传各的、再次分叉）
-  const calls = (p.match(/return linkCommandText\(\)/g) || []).length;
+  // 5 通道 × 2 条分支 = 10 处。
+  // 2026-10-31：调用变成 `await linkCommandText()`（要多问一次 serve 状态），
+  // 且 QQ 那一路传 `true`（把链接包进代码块，让 QQ 显示「复制」按钮）——
+  // 参数只允许这一个布尔值，且只能出现在 QQ 分支：它只影响**渲染格式**，
+  // 不影响文案内容（文案仍然共用同一份，这是本守卫的初衷）。
+  const calls = (p.match(/return await linkCommandText\(/g) || []).length;
   if (calls < 10) {
     console.error('33. return linkCommandText() 只有 ' + calls + ' 处 —— 5 通道 × 2 条分支应为 10 处');
     process.exit(1);
   }
-  if (/linkCommandText\([^)]/.test(p)) {
-    console.error('33. linkCommandText 又被传了参数 —— 5 通道应共用同一份文案，不需要各传各的');
+  const withArgs = (p.match(/(?<!function )linkCommandText\((?!\))[^)]*\)/g) || []);
+  const badArgs = withArgs.filter((s) => !/^linkCommandText\(true\)$/.test(s));
+  if (badArgs.length) {
+    console.error('33. linkCommandText 被传了不该有的参数：' + badArgs.join(', ') +
+      ' —— 只允许 QQ 传 true（代码块），其它通道必须无参数共用同一份文案');
     process.exit(1);
   }
   // 不许再有"单独补发第二条提示"的机制（那正是"微信 2 条、其它 1 条"的由来）
@@ -2637,22 +2650,26 @@ await new Promise((res, rej) => {
     console.error('41. 没有对 sendMarkdown 做存在性判断 —— 旧版 SDK 会直接发不出去');
     process.exit(1);
   }
-  if (!/bot\.sendMarkdown\(tgt, parts\[i\]\)/.test(qqCode)) {
+  // 允许带 opts（内嵌键盘）——2026-10-29 加按钮后签名变成
+  //   sendMarkdown(tgt, part, hasKb ? { keyboard: kb } : undefined)
+  if (!/bot\.sendMarkdown\(tgt, parts\[i\]/.test(qqCode)) {
     console.error('41. sendRaw 在 markdown 模式下没有真的调用 sendMarkdown');
     process.exit(1);
   }
   // 指令回复也要走 markdown（用户 2026-10-19 决定）：通道内的回复发送点必须传 md
-  if (!/await sendRaw\(\{[^}]*\}, reply, \{ md: true \}\)/.test(qqCode)) {
+  // 允许附带 keyboard 等字段（2026-10-29 /帮助 回复挂按钮后选项对象变多行）
+  if (!/await sendRaw\(\{[^}]*\}, reply, \{[^}]*md: true/.test(qqCode)) {
     console.error('41. QQ 指令回复没有走 markdown —— /历史内容 这类带表格的回复会满屏符号');
     process.exit(1);
   }
-  // 监听通知也必须走 markdown
-  if (!/qqbotChannel\.send\(qqTarget, text, \{ md: true \}\)/.test(idxCode)) {
+  // 监听通知也必须走 markdown（允许附带 keyboard 等字段 —— 2026-10-29 加了内嵌键盘；
+  // 正文变量名不限：2026-10-31 起由 _finalText 拼上"复制链接"代码块）
+  if (!/qqbotChannel\.send\(qqTarget, \w+, \{ md: true[^}]*\}\)/.test(idxCode)) {
     console.error('41. 监听通知没有以 markdown 模式发给 QQ —— 用户看到的还是满屏符号');
     process.exit(1);
   }
   // index.mjs 里只允许 QQ 监听通知这一处 md:true（其它通道不渲染 markdown）
-  const mdTrue = (idxCode.match(/\{ md: true \}/g) || []).length;
+  const mdTrue = (idxCode.match(/md: true/g) || []).length;
   if (mdTrue !== 1) {
     console.error('41. index.mjs 有 ' + mdTrue + ' 处 md:true —— 只允许 QQ 监听通知这一处');
     process.exit(1);
@@ -2775,8 +2792,9 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   // ③ 自愈必须发生在 send 之前（先救回来再发，当轮就能推出去）
+  // 正文变量名不限：2026-10-31 起正文由 _finalText 拼上了"复制链接"代码块
   const healAt = code.search(/setLastTarget\(_lt\)/);
-  const sendAt = code.search(/qqbotChannel\.send\(qqTarget, text, \{ md: true \}\)/);
+  const sendAt = code.search(/qqbotChannel\.send\(qqTarget, \w+, \{ md: true/);
   if (healAt < 0 || sendAt < 0 || healAt > sendAt) {
     console.error('44. 自愈在发送之后 —— 当轮仍然推不出去');
     process.exit(1);
@@ -2789,6 +2807,654 @@ await new Promise((res, rej) => {
     }
   }
   console.log('44. 监听通道可观测性 OK（QQ 有跳过原因 + 目标为空可自愈 + 自愈在发送前 + 其它通道跳过记录还在）');
+}
+
+// 45. QQ 内嵌键盘（按钮）必须带 permission，且用 SDK 真正认的 `opts.keyboard`
+//
+// 踩过的坑（2026-10-29，用户实测："点了按钮提示我没有权限"）：
+//   官方 API 字段表把 `action.permission` 标成**非必填**，但**不传的后果是谁都不能点** ——
+//   实测：不传时电脑端把指令填进输入框、手机端直接报"没有权限"。
+//   补上 `permission: { type: 2 }`（所有人）+ `enter: true` 后，
+//   手机和电脑都变成**点一下直接发出**，与第三方机器人「貂貂」行为一致。
+//
+// 另外两个实测结论：
+//   · `label` 最多 10 字符（超了服务端拒），图标只能用 emoji 拼进 label
+//   · `enter`（点击直接发送）仅单聊有效；群聊里只能填入输入框
+{
+  const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const qqCode = qq.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const idxCode = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 构造器存在并导出
+  if (!/export function makeQQKeyboard\(/.test(qqCode)) {
+    console.error('45. 缺少 makeQQKeyboard —— 没法构造合法的内嵌键盘');
+    process.exit(1);
+  }
+  // ② permission 必须给默认值（这是"没权限"的根因）
+  if (!/d\.permission \|\| \{ type: 2 \}/.test(qqCode)) {
+    console.error('45. makeQQKeyboard 没有默认 permission:{type:2} —— 不传 permission 时点按钮会提示"没有权限"（踩过）');
+    process.exit(1);
+  }
+  // ③ label 必须截断到 10 字符（服务端上限）
+  if (!/slice\(0, 10\)/.test(qqCode)) {
+    console.error('45. label 没有截断到 10 字符 —— 超长会被服务端拒绝');
+    process.exit(1);
+  }
+  // ④ enter 默认 true（点一下直接发）
+  if (!/const enter = d\.enter !== false/.test(qqCode)) {
+    console.error('45. enter 没有默认 true —— 手机端点按钮只会填入输入框，还得再点发送');
+    process.exit(1);
+  }
+  // ⑤ sendRaw 必须用 **SDK 真正认的参数名** `{ keyboard: kb }`
+  //
+  // 踩过的坑（2026-10-29，用户："帮助没有按钮"）：SDK 的实现是
+  //   async sendMarkdown(target, content, opts) {
+  //     return this.send({ ..., keyboard: opts?.keyboard });
+  //   }
+  // 也就是说字段叫 `opts.keyboard`，写成 `inlineKeyboard`（那是更底层 protocol 层的名字）
+  // 会被当成 undefined —— **消息照发、按钮静默丢失**，日志里一点异常都没有。
+  if (!/\{ keyboard: kb \}/.test(qqCode)) {
+    console.error('45. sendRaw 没有用 SDK 认的 { keyboard: kb } —— 写成 inlineKeyboard 会让按钮静默丢失（踩过）');
+    process.exit(1);
+  }
+  if (/inlineKeyboard: kb/.test(qqCode)) {
+    console.error('45. sendRaw 又用回了 inlineKeyboard —— 高层 sendMarkdown 不认这个名字，按钮不会出现');
+    process.exit(1);
+  }
+  // ⑥ 键盘只挂最后一片（分片时不该每片都带按钮）
+  if (!/i === parts\.length - 1/.test(qqCode)) {
+    console.error('45. 内嵌键盘没有限定只挂在最后一片 —— 长消息分片时每片都会带一排按钮');
+    process.exit(1);
+  }
+  // ⑦ 监听通知必须真的把键盘传进去
+  // ⑦ 监听通知必须真的把键盘传进去（正文变量名不限：现在传的是拼了复制代码块的 _finalText）
+  if (!/qqbotChannel\.send\(qqTarget, \w+, \{ md: true, keyboard: _kb \}\)/.test(idxCode)) {
+    console.error('45. 监听通知没有把 keyboard 传给 send —— 手机上的通知还是没按钮');
+    process.exit(1);
+  }
+  // ⑧ 必须留开关（store 里 qqbot.buttons=false 可关）
+  if (!/_qk\.buttons === false/.test(idxCode)) {
+    console.error('45. 按钮没有开关 —— 用户想关掉时没法关');
+    process.exit(1);
+  }
+  // ⑨ 按钮 id 必须全局唯一（不能再用行内序号 'b'+idx）
+  //
+  // 踩过的坑（2026-10-30，用户："没有按钮"）：id 用行内序号时，4 行 10 个按钮只有
+  // b0/b1/b2 三个不同 id。官方要求"同一键盘内唯一"，撞车后**整块键盘被静默丢弃** ——
+  // 接口 HTTP 200、消息正常送达、一个按钮都没有、日志零报错。
+  if (!/const uniqId = function/.test(qqCode)) {
+    console.error('45. makeQQKeyboard 没有生成唯一 id 的逻辑 —— 多行按钮会撞 id，整块键盘会被静默丢弃（踩过）');
+    process.exit(1);
+  }
+  if (/'b' \+ idx/.test(qqCode)) {
+    console.error('45. 又用回了行内序号 id（\'b\' + idx）—— 多行按钮必然撞 id');
+    process.exit(1);
+  }
+  console.log('45. QQ 内嵌键盘 OK（permission 默认所有人 + label 截断 10 + enter 默认 true + opts.keyboard 透传 + 只挂最后一片 + 通知已接线 + 有开关 + id 全局唯一）');
+}
+
+// 46. 帮助里的每条指令都必须有对应按钮（菜单与帮助文本不许漂移）
+//
+// 背景（2026-10-29 用户要求）："把所有指令都做成按钮，帮助里的"。
+// 这类"两份清单要一一对应"的东西最容易漂 —— 以后在 HELP_LINES 里加一条指令
+// 却忘了加按钮，用户就点不到。所以这里直接**从 HELP_LINES 里把指令抠出来比对**。
+//
+// 唯一豁免：`/选择` —— 它必须带序号（/选择 N），按钮没法替你填参数。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+
+  // ① 帮助文本里的指令
+  const h0 = idx.indexOf('const HELP_LINES');
+  const h1 = idx.indexOf('const WEIXIN_HELP');
+  if (h0 < 0 || h1 < 0) {
+    console.error('46. 找不到 HELP_LINES / WEIXIN_HELP —— 帮助文本结构变了，守卫需要更新');
+    process.exit(1);
+  }
+  const helpBlock = idx.slice(h0, h1);
+  const helpCmds = [...new Set([...helpBlock.matchAll(/\/([一-龥A-Za-z]+)/g)].map((m) => '/' + m[1]))];
+  if (helpCmds.length < 8) {
+    console.error('46. 从 HELP_LINES 只解析出 ' + helpCmds.length + ' 条指令 —— 解析逻辑可能失效');
+    process.exit(1);
+  }
+
+  // ② 菜单里的按钮（只认 QQ_COMMAND_MENU 那段里的 data）
+  const m0 = qq.indexOf('export const QQ_COMMAND_MENU');
+  const m1 = qq.indexOf('export const QQ_NOTIFY_MENU');
+  if (m0 < 0 || m1 < 0) {
+    console.error('46. 找不到 QQ_COMMAND_MENU / QQ_NOTIFY_MENU');
+    process.exit(1);
+  }
+  const menuBlock = qq.slice(m0, m1);
+  const btnData = [...new Set([...menuBlock.matchAll(/data:\s*'(\/[^']*)'/g)].map((m) => m[1]))];
+  if (!btnData.length) {
+    console.error('46. QQ_COMMAND_MENU 里没有解析到任何 data —— 按钮定义结构变了');
+    process.exit(1);
+  }
+
+  // ③ 覆盖性：除 /选择 外，帮助里的每条指令都要有按钮
+  const EXEMPT = ['/选择'];
+  const missing = helpCmds.filter((c) => !EXEMPT.includes(c) && !btnData.includes(c));
+  if (missing.length) {
+    console.error('46. 这些指令在帮助里有、但没有按钮（用户点不到）：' + missing.join(' '));
+    process.exit(1);
+  }
+  // ④ 反向：按钮不能指向帮助里没有的指令（点了会"未知命令"）
+  const extra = btnData.filter((c) => !helpCmds.includes(c));
+  if (extra.length) {
+    console.error('46. 这些按钮指向的指令不在帮助列表里（点了会报未知命令）：' + extra.join(' '));
+    process.exit(1);
+  }
+  // ⑤ label 必须 ≤10 字符（QQ 硬限制，超了服务端拒）
+  const longLabel = [...menuBlock.matchAll(/label:\s*'([^']*)'/g)]
+    .map((m) => m[1])
+    .filter((l) => Array.from(l).length > 10);
+  if (longLabel.length) {
+    console.error('46. 这些按钮文字超过 10 字符会被 QQ 拒绝：' + longLabel.join(' / '));
+    process.exit(1);
+  }
+  // ⑥ 帮助回复必须真的挂上菜单
+  if (!/_isHelp \? makeQQKeyboard\(QQ_COMMAND_MENU\) : null/.test(qq)) {
+    console.error('46. /帮助 的回复没有挂上 QQ_COMMAND_MENU —— 用户看到的帮助还是光秃秃的文本');
+    process.exit(1);
+  }
+  console.log('46. 指令按钮 OK（帮助 ' + helpCmds.length + ' 条指令 → ' + btnData.length
+    + ' 个按钮全覆盖，仅豁免 /选择；按钮无多余项；label 均 ≤10；/帮助 回复已挂菜单）');
+}
+
+// 47. 会话列表：必须过滤空壳、排序稳定、且「列表」与「选择」共用同一份
+//
+// 背景（2026-10-30 用户："怎么有 92 个会话，你是把子智能体也算上了吗" + "那么多无标题"）：
+//   查清 92 个**不是子智能体**（visibleSessionRecords 已按 origin='subagent'/delegationDepth 过滤），
+//   而是 6 个工作区的历史会话全列出来了（创世沙盒 69、当前「测试」只有 10）；
+//   其中 13 个是空壳（5KB、0 条消息、没标题 → 全显示"(无标题)"）。
+//   所以：丢空壳 + 按创建时间倒序 + 限量。
+//
+// 这里守两件最容易回归的事：
+//   ① 「/选择 N」必须用和「/会话列表」同一份列表（否则编号错位）
+//   ② 列表逻辑不许再直接拿 visibleSessionRecords() 全量输出
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 共用列表函数存在
+  if (!/async function sessionMenuList\(\)/.test(code)) {
+    console.error('47. 缺少 sessionMenuList —— 「列表」和「选择」会各算各的，编号必然错位');
+    process.exit(1);
+  }
+  // ② 选择必须走同一份
+  if (!/const list = await sessionMenuList\(\);\s*\n\s*const idx = parseInt/.test(code)) {
+    console.error('47. /选择 N 没有用 sessionMenuList —— 用户看到的编号和实际选中的会话会对不上');
+    process.exit(1);
+  }
+  // ③ 列表必须丢掉空壳（没有标题就跳过）
+  if (!/if \(!t\) continue; \/\/ 空壳跳过/.test(code)) {
+    console.error('47. 会话列表没有过滤空壳 —— 一堆"(无标题)"会刷屏（踩过）');
+    process.exit(1);
+  }
+  // ④ 必须排序（按 createdAt 倒序）
+  if (!/titled\.sort\(function \(a, b\) \{ return b\.at - a\.at; \}\)/.test(code)) {
+    console.error('47. 会话列表没有按创建时间倒序 —— 最近在用的会排到后面，跨工作区时体验很差');
+    process.exit(1);
+  }
+  // ⑤ 必须限量
+  if (!/const MAX_SESSIONS = \d+/.test(code) || !/slice\(0, MAX_SESSIONS\)/.test(code)) {
+    console.error('47. 会话列表没有限量 —— 几十条会一次全推给手机');
+    process.exit(1);
+  }
+  // ⑥ cmdSessionList 不许再直接全量输出 visibleSessionRecords()
+  if (/async function cmdSessionList[\s\S]{0,400}?const raw = await visibleSessionRecords\(\)/.test(code)) {
+    console.error('47. cmdSessionList 又直接拿 visibleSessionRecords() 全量输出 —— 空壳和跨工作区噪音会回来');
+    process.exit(1);
+  }
+  console.log('47. 会话列表 OK（共用 sessionMenuList + 过滤空壳 + 创建时间倒序 + 限量 ' +
+    (code.match(/const MAX_SESSIONS = (\d+)/) || [])[1] + ' 条 + 选择走同一份）');
+}
+
+// 48. 会话列表的按钮：默认 6 个 + 「全部」，点第 N 个 = 发 /选择 N
+//
+// 用户要求（2026-10-30）："把所有会话也做成按钮，点击哪个就发选择几，
+// 按会话多少自动增减按钮，默认显示 6 个，第七个按钮为其他，
+// 点击就发送一个完整选会话按钮消息"。
+//
+// 这里守四件事：
+//   ① 首页 6 个（SESSION_PAGE=6）、「全部」按钮存在
+//   ② 每个会话按钮的 data 必须是 `/选择 N`（点一下就直接选出该会话）
+//   ③「全部」的 data 必须是 `/会话列表 全部`（触发完整列表）
+//   ④ 通道侧必须通过 replyKeyboardFor 回调拿键盘（不能塞死通道内）
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const qqCode = qq.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 分页大小必须是 6
+  if (!/const SESSION_PAGE = 6;/.test(code)) {
+    console.error('48. SESSION_PAGE 不是 6 —— 用户要求默认显示 6 个会话按钮');
+    process.exit(1);
+  }
+  // ② 会话按钮 → /选择 N
+  if (!/data: '\/选择 ' \+ item\.n/.test(code)) {
+    console.error('48. 会话按钮没有指向 /选择 N —— 点了不会选中对应会话');
+    process.exit(1);
+  }
+  // ③「全部」按钮 → /会话列表 全部
+  if (!/label: '全部', data: '\/会话列表 全部'/.test(code)) {
+    console.error('48. 缺少「全部」按钮或它没指向 /会话列表 全部 —— 用户看不到完整列表');
+    process.exit(1);
+  }
+  // ④「全部」只在首条、且确有更多会话时出现；
+  //   首条的按钮只取前 SESSION_PAGE 个（文字里才列全部）
+  if (!/isFirst && menu\.length > SESSION_PAGE/.test(code)) {
+    console.error('48. 「全部」没有按"还有更多会话"做条件判断 —— 会话不足 6 个时也会多出一个没用的按钮');
+    process.exit(1);
+  }
+  if (!/const items = isFirst \? menu\.slice\(0, SESSION_PAGE\) : menu;/.test(code)) {
+    console.error('48. 首条消息没有把按钮截到前 6 个 —— 文字列全部、按钮也铺全部就失去分页意义了');
+    process.exit(1);
+  }
+  // ④b「全部会话」那条：文字只有一行、**不带列表**；按钮给**全部**（不是第 7 个以后）
+  if (!/return '全部会话：';/.test(code)) {
+    console.error('48. 「全部」那条的文字不是「全部会话：」');
+    process.exit(1);
+  }
+  if (/lastSessionMenu = allItems\.slice\(SESSION_PAGE\)/.test(code)) {
+    console.error('48. 「全部」那条还在把菜单截成"第 7 个以后"—— 用户要求给出全部按钮');
+    process.exit(1);
+  }
+  // ⑤ 通道必须走回调（职责分离：通道不碰 sessionQuery）
+  if (!/replyKeyboardFor: qqReplyKeyboard/.test(code)) {
+    console.error('48. 没把 qqReplyKeyboard 传给通道（replyKeyboardFor）—— 会话列表不会有按钮');
+    process.exit(1);
+  }
+  if (!/const replyKeyboardFor = typeof opt\.replyKeyboardFor === 'function'/.test(qqCode)) {
+    console.error('48. 通道没有接收 replyKeyboardFor 选项');
+    process.exit(1);
+  }
+  // ⑥「全部」模式必须能被指令触发（源码里含 `\s+全部` 这个分支）
+  if (code.indexOf('\\s+全部') < 0) {
+    console.error('48. 指令入口没有解析「/会话列表 全部」—— 「全部」点了没反应');
+    process.exit(1);
+  }
+  console.log('48. 会话按钮 OK（首页 6 个 + 「全部」→ /会话列表 全部 + 点第 N 个发 /选择 N + 通道走 replyKeyboardFor 回调）');
+}
+
+// 49. 监听通知的「选此会话」按钮：必须按**会话 id** 选中，而不是列表序号
+//
+// 用户要求（2026-10-30）："把最近回复改成选此会话，功能是直接选择这个消息所属的会话进行对话"
+//
+// 为什么必须用 id 而不是序号：通知是针对**某个具体会话**发的，
+// 而 `/选择 N` 的 N 是"当前列表里的第几个" —— 通知发出后列表顺序可能已经变了
+// （新会话产生、空壳被过滤、排序变化），序号会指向别的会话。
+// 所以按钮 data 用 `/选择 id=<sessionId>`，选择逻辑直接按 id 落库。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 通知按钮必须是「选此会话」，且带 id
+  if (!/label: '🗣 选此会话', data: '\/选择 id=' \+ aid/.test(code)) {
+    console.error('49. 监听通知没有「选此会话」按钮，或它没带上该会话的 id —— 点了切不到通知所属的会话');
+    process.exit(1);
+  }
+  // ② 不许再出现「最近回复」
+  if (code.indexOf('最近回复') >= 0) {
+    console.error('49. 还在用「最近回复」—— 用户要求换成「选此会话」');
+    process.exit(1);
+  }
+  // ③ cmdSelectSession 必须支持 id= 分支
+  if (!/\^id=\/i\.test\(raw\)/.test(code)) {
+    console.error('49. cmdSelectSession 没有解析 id= 参数 —— 「选此会话」点了会报编号无效');
+    process.exit(1);
+  }
+  // ④ 按 id 选中时必须先校验会话存在（否则会把 selected 指向一个不存在的 id）
+  if (!/const t = await getSessionTitle\(sid\);/.test(code)) {
+    console.error('49. 按 id 选中时没有校验会话是否存在');
+    process.exit(1);
+  }
+  if (!/st\.selected = sid;/.test(code)) {
+    console.error('49. 按 id 选中时没有真的把 selected 设成该 id');
+    process.exit(1);
+  }
+  // ⑤ 各通道的 /选择 指令都要接受 id=（否则按钮发出去没人认）
+  const idCmds = (code.match(/id=\[\\w-\]\+/g) || []).length;
+  if (idCmds < 4) {
+    console.error('49. 只有 ' + idCmds + ' 处 /选择 的解析接受 id= —— 五个通道应该都认（否则某端按钮无效）');
+    process.exit(1);
+  }
+  console.log('49. 「选此会话」OK（通知按钮带 id + 按 id 选中并校验存在 + ' + idCmds + ' 处指令解析接受 id=）');
+}
+
+// 50. 模型选择也做成按钮（用户："把模型选择也一样改"）
+//
+// 要求：`/切换模型` 列出的模型 → 每个一个按钮，点哪个就直接切到哪个；
+// 有思考强度的模型会再进「选强度」，那一步同样给按钮（含「默认」）。
+//
+// 为什么模型按钮也用 id 而不是序号：和会话同理 —— 列表可能因为 provider 掉线/
+// 新增模型而变化，序号会指向别的模型。按钮 data 用 `/切换模型 id=<provider>:<modelId>`。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 模型列表回复要挂按钮，data 带 provider:modelId
+  if (!/reply\.indexOf\('可用模型'\) >= 0/.test(code)) {
+    console.error('50. 模型列表回复没有挂按钮（没检测「可用模型」）—— 用户还是只能手打编号');
+    process.exit(1);
+  }
+  if (!/data: '\/切换模型 id=' \+ m\.provider \+ ':' \+ m\.id/.test(code)) {
+    console.error('50. 模型按钮没有带 provider:modelId —— 点了切不到指定模型');
+    process.exit(1);
+  }
+  // ② cmdSwitchModel 必须解析 id=（提供方:模型id）
+  if (!/\^id=\/i\.test\(a\)/.test(code)) {
+    console.error('50. cmdSwitchModel 没有解析 id= 参数 —— 模型按钮点了会报编号无效');
+    process.exit(1);
+  }
+  if (!/const sep = spec\.indexOf\(':'\);/.test(code)) {
+    console.error('50. cmdSwitchModel 没有解析 provider:modelId 的分隔符');
+    process.exit(1);
+  }
+  // ③ 选中逻辑必须抽成共用（索引路径和 id 路径都走它，不能两份）
+  if (!/async function applyModelChoice\(st, m\)/.test(code)) {
+    console.error('50. 模型选中逻辑没有抽成 applyModelChoice —— 索引/按钮两条路会各写一份，必然漂');
+    process.exit(1);
+  }
+  const calls = (code.match(/await applyModelChoice\(st, /g) || []).length;
+  if (calls < 2) {
+    console.error('50. applyModelChoice 只被调用 ' + calls + ' 次 —— 索引和 id 两条路要都走它');
+    process.exit(1);
+  }
+  // ④ 思考强度那一步也要给按钮，编号必须 **1 起**（1=默认，2..N+1=档位）
+  //
+  // 踩过的坑（2026-10-31 用户："这个按钮编号有问题"）：原来「默认」占 0 号位，
+  // 而 QQ 的 markdown 会把有序列表**从 1 重新编号** —— "0. 默认 / 1. Low…" 渲染成
+  // "1. 默认 / 2. Low…"，文字和按钮整体错开一位。改成 1 起后两边天然对齐。
+  if (!/reply\.indexOf\('思考强度'\) >= 0/.test(code)) {
+    console.error('50. 「选强度」那一步没有按钮 —— 用户还得手打数字');
+    process.exit(1);
+  }
+  if (!/label: '1', data: '\/选强度 1'/.test(code)) {
+    console.error('50. 思考强度的第一个按钮不是「1」= 默认（编号必须 1 起）');
+    process.exit(1);
+  }
+  if (/\{ label: '默认', data: '\/选强度 0'/.test(code)) {
+    console.error('50. 又出现了 0 起的强度编号 —— 会和 markdown 的 1 起重排打架，文字和按钮错位（踩过）');
+    process.exit(1);
+  }
+  // 编号映射：1/0 → 默认，2..N+1 → 档位
+  if (!/if \(idx === 0 \|\| idx === 1\) effort = undefined;/.test(code)) {
+    console.error('50. cmdPickEffort 没有把 1（和兼容的 0）当作「默认」');
+    process.exit(1);
+  }
+  if (!/idx >= 2 && idx <= pick\.efforts\.length \+ 1/.test(code)) {
+    console.error('50. cmdPickEffort 的档位映射不是 2..N+1 —— 会选错强度');
+    process.exit(1);
+  }
+  console.log('50. 模型按钮 OK（模型列表挂按钮 + provider:modelId + cmdSwitchModel 解析 id= + 共用 applyModelChoice + 强度步 1 起编号含默认）');
+}
+
+// 51. 按钮必须**自适应**（数量跟着真实数据走，不许写死）+ 模型列表分页
+//
+// 用户提的三个问题（2026-10-31）：
+//   ① "有的模型不是 4 个"（强度档数不同）→ 按钮数必须跟着档数变
+//   ② "我是 10 个模型，别人不一定也是十个" → 模型按钮数必须跟着模型数变
+//   ③ "一次 10 个按钮加文字列表，太多了，改成会话列表那样的" → 首条只给 6 个 + 「全部」
+//
+// 所以这里禁止一切"写死按钮数量"的痕迹，并要求模型列表走 MODEL_PAGE 分页。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 强度按钮：必须遍历真实档位（不是写死 4 个）
+  if (!/for \(const e of em\)/.test(code)) {
+    console.error('51. 思考强度按钮没有遍历真实档位 —— 换个模型（档数不同）就会缺按钮或多按钮');
+    process.exit(1);
+  }
+  // ② 模型按钮：必须遍历真实模型
+  if (!/for \(const m of items\)/.test(code)) {
+    console.error('51. 模型按钮没有遍历真实模型列表');
+    process.exit(1);
+  }
+  // ③ 模型列表分页：MODEL_PAGE 常量 + 首条截断 + 「全部」按钮
+  if (!/const MODEL_PAGE = \d+;/.test(code)) {
+    console.error('51. 缺少 MODEL_PAGE —— 模型列表没有分页');
+    process.exit(1);
+  }
+  if (!/const items = isModelFirst \? mm\.slice\(0, MODEL_PAGE\) : mm;/.test(code)) {
+    console.error('51. 模型首条没有截到 MODEL_PAGE 个 —— 一次铺 10 个按钮太挤（用户反馈过）');
+    process.exit(1);
+  }
+  if (!/label: '全部', data: '\/切换模型 全部'/.test(code)) {
+    console.error('51. 模型列表缺少「全部」按钮（应指向 /切换模型 全部）');
+    process.exit(1);
+  }
+  if (!/isModelFirst && mm\.length > MODEL_PAGE/.test(code)) {
+    console.error('51. 「全部」按钮没有按"模型数超过一页"做条件 —— 只有 3 个模型时也会多出没用的按钮');
+    process.exit(1);
+  }
+  // ④「全部模型」那条不许列文字列表（和会话列表一致）
+  if (!/return '全部模型：';/.test(code)) {
+    console.error('51. 「全部」那条还在返回文字列表 —— 用户要求像会话列表那样只出按钮');
+    process.exit(1);
+  }
+  // ⑤ 每条行内最多 3 个按钮（手机上一行放不下更多）
+  const threePerRow = (code.match(/row\.length === 3/g) || []).length;
+  if (threePerRow < 3) {
+    console.error('51. 只有 ' + threePerRow + ' 处按"每行 3 个"换行 —— 会话/模型/强度三处都该这么做');
+    process.exit(1);
+  }
+  console.log('51. 按钮自适应 OK（强度跟档数 + 模型跟模型数 + MODEL_PAGE=' +
+    (code.match(/const MODEL_PAGE = (\d+)/) || [])[1] +
+    ' 分页 + 「全部」按条件出现 + 全部页不列文字 + 每行 3 个）');
+}
+
+// 52. 「🔗 打开 DSH」跳转按钮 + 「停止」二次确认
+//
+// 用户要求（2026-10-31）："① type=0 跳转 —— 最实用 / ② /停止 加二次确认弹窗 —— 防误点"
+//
+// 真机验证过的结论（这三条决定了实现方式，别再改回去）：
+//   · `action.type=0` 跳转按钮有效 → 点了开浏览器
+//   · QQ 内置浏览器**只肯打开 https + 域名**：http 会被拦（弹"用浏览器打开"），
+//     **裸 IP 也打不开**（`https://100.103.130.41/` 实测失败）
+//   · 所以地址必须用 MagicDNS 域名（`https://xxx.tailabcd.ts.net/?token=…`），
+//     配 `tailscale serve` 拿到真证书后 QQ 能直接打开（实测 0.03 秒）
+//   · `action.modal` 二次确认有效（真机弹出确认框）
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  const ts = fs.readFileSync(new URL('../lib/tailscale.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const qqCode = qq.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 跳转按钮：type: 0 + 域名 https（不能用裸 IP、不能用 http）
+  if (!/label: '🔗 打开 DSH', data: _open, type: 0/.test(code)) {
+    console.error('52. 通知里没有「🔗 打开 DSH」跳转按钮（或它没标 type:0）');
+    process.exit(1);
+  }
+  if (!/if \(ts && serveOk\) return 'https:\/\/' \+ ts \+ '\/\?token='/.test(code)) {
+    console.error('52. 打开地址没有优先用 MagicDNS 域名 —— 裸 IP 在 QQ 里打不开（实测）');
+    process.exit(1);
+  }
+  // ⚠ 只连上 Tailscale 不等于 443 能通：443 的 HTTPS 是 `tailscale serve` 建的。
+  // 别人刚装好插件、只装了 Tailscale 时 serve 不存在 —— 这时硬用域名，按钮点了就是打不开。
+  // 所以必须**先确认 serve 配好了**才用域名，否则退回公网（开箱即用，不要求用户懂 Tailscale）。
+  if (!/serveOk = await tailscaleProbe\.serveConfigured\(\)/.test(code)) {
+    console.error('52. qqOpenUrl 没有确认 tailscale serve 是否配好 —— 别人没配 serve 时按钮会打不开');
+    process.exit(1);
+  }
+  if (!/async function serveConfigured\(\)/.test(ts)) {
+    console.error('52. tailscale.mjs 没有 serveConfigured() —— 无法判断 443 是否可用');
+    process.exit(1);
+  }
+  if (!/tailscaleProbe\.snapshot\(\)/.test(code)) {
+    console.error('52. qqOpenUrl 没读 tailscale 状态 —— 拿不到 dnsName 就只能退回慢的公网地址');
+    process.exit(1);
+  }
+  // ② dnsName 必须真的从 status --json 解析出来
+  if (!/out\.dnsName = self\.DNSName/.test(ts)) {
+    console.error('52. tailscale.mjs 没有解析 Self.DNSName —— 域名永远是空的');
+    process.exit(1);
+  }
+  // ③ 停止按钮必须带 modal（防误点）
+  if (!/label: '⏹ 停止', data: '\/停止', style: 3,/.test(qqCode)) {
+    console.error('52. 「停止」按钮没设置成危险样式（style 3）');
+    process.exit(1);
+  }
+  if (!/modal: \{[\s\S]{0,200}?content: '确定要停止远程服务吗/.test(qqCode)) {
+    console.error('52. 「停止」按钮没有二次确认弹窗（modal）—— 误点一下服务就停了');
+    process.exit(1);
+  }
+  // ④ makeQQKeyboard 必须把 modal 透传给 action（不透传等于没挂）
+  if (!/\.\.\.\(b\.modal && typeof b\.modal === 'object' \? \{ modal: b\.modal \} : \{\}\)/.test(qqCode)) {
+    console.error('52. makeQQKeyboard 没有把 modal 透传到 action —— 弹窗不会出现');
+    process.exit(1);
+  }
+  console.log('52. 跳转+确认 OK（打开DSH用域名https + 裸IP被排除 + dnsName已解析 + 停止按钮 danger样式+modal + modal已透传）');
+}
+
+// 53. 通知里带「可复制链接」（围栏代码块 → QQ 原生「复制」按钮）
+//
+// 用户要求（2026-10-31）："按钮可不可以点一下就复制，/链接指令里已经有文本链接了"
+//
+// QQ 的按钮只有三种动作（0 跳转 / 1 回调 / 2 指令），**没有"复制到剪贴板"** ——
+// 但**围栏代码块自带一个「复制」按钮**（真机确认）：
+// 把链接塞进 ``` 代码块，点那个复制就等于一键复制。
+//
+// 这里守三件事：
+//   ① 通知正文里要拼上代码块（且用 \n```\n 包住链接）
+//   ② 打开地址只算一次（qqOpenUrl 会问 serve 状态，别调两遍）
+//   ③ toQQMarkdown 不能破坏围栏（否则复制按钮消失）
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  if (!/点下面代码块右上角的「复制」/.test(code)) {
+    console.error('53. 通知里没有"可复制链接"的说明文案 —— 用户不知道能复制');
+    process.exit(1);
+  }
+  if (!/\+ _open \+ '\\n```'/.test(code)) {
+    console.error('53. 链接没有包进围栏代码块 —— QQ 不会给「复制」按钮');
+    process.exit(1);
+  }
+  const calls = (code.match(/await qqOpenUrl\(\)/g) || []).length;
+  if (calls !== 1) {
+    console.error('53. qqOpenUrl() 被调用了 ' + calls + ' 次 —— 每条通知会多问两次 tailscale serve 状态');
+    process.exit(1);
+  }
+  // toQQMarkdown 必须原样保留三反引号（它只处理图片/分隔线，不该碰代码块）
+  if (/replace\(\/`\{3\}/.test(qq)) {
+    console.error('53. toQQMarkdown 在改写三反引号 —— 代码块被破坏后「复制」按钮会消失');
+    process.exit(1);
+  }
+  console.log('53. 可复制链接 OK（围栏代码块 + 说明文案 + qqOpenUrl 只调一次 + 转换不破坏围栏）');
+}
+
+// 54. `/链接` 要给三条地址、且 QQ 里带「复制」按钮
+//
+// 用户反馈（2026-10-31）："`/链接`，指令没有变化啊"
+// —— 之前只改了监听通知，`/链接` 还是老的「公网 + P2P http」两条，
+// 缺了现在最该推荐的那条：Tailscale HTTPS（域名 + 真证书，QQ 里能直接打开，0.03 秒）。
+//
+// 现在的顺序（不能乱：最快的排最前）：
+//   ① Tailscale HTTPS（需要 serve 配好）② 公网隧道 ③ P2P http（兜底）
+// 且 QQ 传 true → 每条链接包进代码块 → QQ 显示「复制」按钮；其它通道保持纯文本。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 必须有 Tailscale HTTPS 这一条
+  if (!/Tailscale HTTPS（最快，QQ 里能直接打开）/.test(code)) {
+    console.error('54. /链接 没有 Tailscale HTTPS 那条 —— 用户只能看到慢的公网隧道和会被拦的 http');
+    process.exit(1);
+  }
+  if (!/if \(dns && tk && typeof tailscaleProbe\.serveConfigured === 'function' && await tailscaleProbe\.serveConfigured\(\)\)/.test(code)) {
+    console.error('54. Tailscale HTTPS 那条没有先确认 serve 配好 —— 没配 serve 的环境会给出打不开的地址');
+    process.exit(1);
+  }
+  // ② 顺序：HTTPS 必须排在公网之前
+  const httpsAt = code.indexOf('Tailscale HTTPS（最快');
+  const pubAt = code.indexOf('公网隧道（Cloudflare）');
+  const p2pAt = code.indexOf('Tailscale P2P（http');
+  if (!(httpsAt >= 0 && pubAt > httpsAt && p2pAt > pubAt)) {
+    console.error('54. /链接 的链接顺序不对 —— 应是最快的 Tailscale HTTPS 排最前，公网次之，P2P http 兜底');
+    process.exit(1);
+  }
+  // ③ QQ 传 true（代码块），其它通道不传
+  const qqTrue = (code.match(/linkCommandText\(true\)/g) || []).length;
+  if (qqTrue !== 2) {
+    console.error('54. QQ 分支传 true 的地方有 ' + qqTrue + ' 处 —— 应为 2 处（隧道好/P2P 通两条分支）');
+    process.exit(1);
+  }
+  // ④ asMarkdown 必须真的把链接包进代码块
+  if (!/asMarkdown \? '```\\n' \+ it\.url \+ '\\n```' : it\.url/.test(code)) {
+    console.error('54. asMarkdown 分支没有把链接包进代码块 —— QQ 里不会有「复制」按钮');
+    process.exit(1);
+  }
+  // ⑤ Tailscale HTTPS 那条必须以 **P2P 真的通了** 为前提（不是"本机 Tailscale 在跑"）
+  //
+  // 用户截图抓到的矛盾：给了 HTTPS 链接，下面却写「P2P 未打通（对端不在线）」。
+  // 根因是用 `snap.connected`（只表示本机后端在跑）当门槛，没管对端是否在线。
+  if (!/const p2p = p2pStateNow\(\);\s*\n\s*\/\/ ① Tailscale HTTPS/.test(idx.replace(/\r/g, ''))) {
+    console.error('54. /链接 没有"先算 P2P 是否真通、再决定要不要给 Tailscale HTTPS" —— 会出现"给了链接却说没打通"的矛盾');
+    process.exit(1);
+  }
+  if (!/if \(p2p\.url\) \{\s*\n\s*try \{[\s\S]{0,300}?serveConfigured\(\)\) \{/.test(code.replace(/\r/g, ''))) {
+    console.error('54. Tailscale HTTPS 那条没有用 p2p.url 作为前提 —— 手机离线时仍会给出打不开的域名链接');
+    process.exit(1);
+  }
+  // ⑥ 通知按钮同理：qqOpenUrl 也必须先看 p2pOk
+  if (!/p2pOk = !!p2pStateNow\(\)\.url;/.test(code)) {
+    console.error('54. qqOpenUrl 没有检查 p2p 是否可用 —— 通知里的「🔗 打开 DSH」会和 /链接 的结论打架');
+    process.exit(1);
+  }
+  console.log('54. /链接 OK（P2P 真通才给 HTTPS + 公网 + P2P 未打通写原因 + QQ 走代码块 + 通知按钮同门槛）');
+}
+
+// 55. `/链接` 的回复也要挂「点一下直接跳转」的按钮
+//
+// 用户反馈（2026-10-31，附截图）："三条链接的文本内容都在，但是没有点击直接跳转的按钮，
+// https 这类 QQ 可以直接打开的链接要有按钮"
+//
+// 规则：
+//   · https 的地址（Tailscale 域名 / 公网隧道）→ 各挂一个 type=0 跳转按钮
+//   · http 的 P2P 地址 → **不挂**（QQ 会拦，挂了也开不了），只保留代码块复制
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① 必须收集 https 地址供按钮用
+  if (!/let lastLinkButtons = \[\];/.test(code)) {
+    console.error('55. 没有 lastLinkButtons —— /链接 的回复无法生成跳转按钮');
+    process.exit(1);
+  }
+  // 必须同时过滤 https 和"有地址"：Tailscale 没连通时那条是纯文本（没有 url），
+  // 不能拿它去建按钮（否则按钮 data 会是 undefined）。
+  if (!/lastLinkButtons = items\.filter\(function \(it\) \{ return it\.https && it\.url; \}\)/.test(code)) {
+    console.error('55. lastLinkButtons 没有同时过滤 https + 有地址 —— 会把打不开的 http / 未打通的文字做成按钮');
+    process.exit(1);
+  }
+  // ② 回复里出现 /链接 的标记时要挂按钮
+  if (!/reply\.indexOf\('Tailscale HTTPS（最快'\) >= 0 \|\| reply\.indexOf\('公网隧道（Cloudflare）'\) >= 0/.test(code)) {
+    console.error('55. qqReplyKeyboard 没有识别 /链接 的回复 —— 那三条链接旁边还是没按钮');
+    process.exit(1);
+  }
+  // ③ 必须是 type=0 跳转（不是指令按钮）
+  if (!/data: b\.url, type: 0, style: 4/.test(code)) {
+    console.error('55. /链接 的按钮不是跳转按钮（type:0）—— 点了只会往输入框塞文字');
+    process.exit(1);
+  }
+  // ④ P2P 那条 https:false —— 不能进按钮
+  if (!/https: false \}\)/.test(code) && !/https: false/.test(code)) {
+    console.error('55. P2P 那条没有标记 https:false —— 它会被当成可跳转地址');
+    process.exit(1);
+  }
+  // ⑤ 按钮文案由用户亲自定（2026-10-31）：那条叫「🔗 P2P」，不叫「快速」
+  if (!/short: '🔗 P2P'/.test(code)) {
+    console.error('55. Tailscale 那条的按钮文案不是「🔗 P2P」—— 用户明确要求改过，别改回去');
+    process.exit(1);
+  }
+  console.log('55. /链接 跳转按钮 OK（只收 https + type:0 + P2P 明确排除 + 文案「🔗 P2P」）');
 }
 
 proxy.close();
