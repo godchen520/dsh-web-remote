@@ -408,15 +408,12 @@ await new Promise((res, rej) => {
     '飞书': 'async function feishuHandleCommand(',
     '钉钉': 'async function dingtalkHandleCommand(',
   };
-  const shared = [
+  // 2026-11-02 重构后：7 条共享指令不再各写一份，统一走 dispatchSharedCommand()。
+  // 所以这里检查的是「每个通道都必须调用共用分发」，而不是「必须有那些函数调用」。
+  // 私有指令（channelHelp / cmdRelayToSession）仍留在各通道里。
+  const sharedViaDispatcher = [
+    'dispatchSharedCommand(',
     'channelHelp(',
-    'cmdSessionList(',
-    'cmdSelectSession(',
-    'cmdCurrentSession(',
-    'cmdHistory(',
-    'cmdCurrentModel(',
-    'cmdSwitchModel(',
-    'cmdPickEffort(',
     'cmdRelayToSession(',
   ];
   const problems = [];
@@ -426,11 +423,14 @@ await new Promise((res, rej) => {
     // 去注释时注意：`//` 前面是反斜杠的情况（例如 !/^\//.test(t)）不是注释，
     // 早先的 /\/\/[^\n]*/ 会把那一行的 relay 调用一起吃掉，导致守卫误报（踩过）。
     const code = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^\\])\/\/[^\n]*/gm, '$1');
-    const lack = shared.filter((k) => code.indexOf(k) < 0);
-    if (lack.length) problems.push(name + ' 缺少共享命令：' + lack.join(', '));
+    const lack = sharedViaDispatcher.filter((k) => code.indexOf(k) < 0);
+    if (lack.length) problems.push(name + ' 没有走共用分发：' + lack.join(', '));
+    // 反向守卫：通道里**不许**再出现那 7 条指令的私有实现（防止有人复制回去）
+    const dup = ['cmdSelectSession(st, mSel[1])', 'cmdSwitchModel(st, t.replace'].filter((k) => code.indexOf(k) >= 0);
+    if (dup.length) problems.push(name + ' 又出现了私有实现（应改共用）：' + dup.join(', '));
   }
   if (problems.length) { console.error('15. 通道命令对齐失败:\n  ' + problems.join('\n  ')); process.exit(1); }
-  console.log('15. 五通道命令对齐 OK（4 个非微信通道 × ' + shared.length + ' 项共享命令）');
+  console.log('15. 五通道命令对齐 OK（每个通道都走 dispatchSharedCommand，且不再复制实现）');
 }
 
 // 16. 监听守卫完整性：禁止再出现"只列两三个通道"的字面量判断
@@ -1557,9 +1557,8 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
 
-  // ① 微信必须调用全部共用指令
-  const shared = ['cmdSessionList(', 'cmdSelectSession(', 'cmdCurrentSession(', 'cmdHistory(',
-    'cmdCurrentModel(', 'cmdSwitchModel(', 'cmdPickEffort(', 'cmdRelayToSession('];
+  // ① 微信必须调用共用实现（2026-11-02 重构后改为走 dispatchSharedCommand）
+  const shared = ['dispatchSharedCommand(', 'cmdRelayToSession('];
   const lack = shared.filter((k) => wx.indexOf(k) < 0);
   if (lack.length) {
     console.error('33. 微信没有走共用实现：' + lack.join(', ') + '\n    内联复制会与共用版漂移（已经漂过一次）');
@@ -2668,10 +2667,13 @@ await new Promise((res, rej) => {
     console.error('41. 监听通知没有以 markdown 模式发给 QQ —— 用户看到的还是满屏符号');
     process.exit(1);
   }
-  // index.mjs 里只允许 QQ 监听通知这一处 md:true（其它通道不渲染 markdown）
+  // index.mjs 里允许两种 md:true：
+  //   ① QQ 监听通知（正文里有 markdown 内容）
+  //   ② QQ 启动通知（2026-11-02：带指令菜单键盘 —— 键盘**只能**随 markdown 下发，
+  //      不加 md 按钮会被 QQ 静默丢掉，用户只看到文字）
   const mdTrue = (idxCode.match(/md: true/g) || []).length;
-  if (mdTrue !== 1) {
-    console.error('41. index.mjs 有 ' + mdTrue + ' 处 md:true —— 只允许 QQ 监听通知这一处');
+  if (mdTrue !== 2) {
+    console.error('41. index.mjs 有 ' + mdTrue + ' 处 md:true —— 只允许「监听通知」和「启动通知(带键盘)」两处');
     process.exit(1);
   }
   if (/feishuSendText\([^)]*md: true|telegramChannel\.send\([^)]*md: true|dingtalkChannel\.send\([^)]*md: true/.test(idxCode)) {
@@ -3072,8 +3074,10 @@ await new Promise((res, rej) => {
     console.error('48. 通道没有接收 replyKeyboardFor 选项');
     process.exit(1);
   }
-  // ⑥「全部」模式必须能被指令触发（源码里含 `\s+全部` 这个分支）
-  if (code.indexOf('\\s+全部') < 0) {
+  // ⑥「全部」模式必须能被指令触发
+  // 2026-11-02 重构后，「\s+全部」这个分支搬到了共用的 dispatchSharedCommand 里，
+  // 所以要查**整个文件**，而不是只看 QQ 那一个 handler。
+  if (code.indexOf('\\s+全部') < 0 && idxSrc.indexOf('\\s+全部') < 0) {
     console.error('48. 指令入口没有解析「/会话列表 全部」—— 「全部」点了没反应');
     process.exit(1);
   }
@@ -3116,13 +3120,23 @@ await new Promise((res, rej) => {
     console.error('49. 按 id 选中时没有真的把 selected 设成该 id');
     process.exit(1);
   }
-  // ⑤ 各通道的 /选择 指令都要接受 id=（否则按钮发出去没人认）
+  // ⑤ /选择 的指令解析必须接受 id=（否则"选此会话"按钮发出去没人认）
+  //
+  // 2026-11-02 重构后：这条解析只在 dispatchSharedCommand() 里**一份**，
+  // 五个通道共用它。所以要求变成两条：
+  //   ① 共用分发里必须有 id= 的解析
+  //   ② 五个通道必须都走共用分发（数量 ≥5）
   const idCmds = (code.match(/id=\[\\w-\]\+/g) || []).length;
-  if (idCmds < 4) {
-    console.error('49. 只有 ' + idCmds + ' 处 /选择 的解析接受 id= —— 五个通道应该都认（否则某端按钮无效）');
+  if (idCmds < 1) {
+    console.error('49. 共用指令分发里没有解析 id= —— 「选此会话」点了会报编号无效');
     process.exit(1);
   }
-  console.log('49. 「选此会话」OK（通知按钮带 id + 按 id 选中并校验存在 + ' + idCmds + ' 处指令解析接受 id=）');
+  const dispatcherCalls = (code.match(/await dispatchSharedCommand\(/g) || []).length;
+  if (dispatcherCalls < 5) {
+    console.error('49. 只有 ' + dispatcherCalls + ' 个通道走共用分发（应 5 个）—— 漏掉的通道 /选择 id= 会失效');
+    process.exit(1);
+  }
+  console.log('49. 「选此会话」OK（通知按钮带 id + 按 id 选中并校验存在 + 共用分发被 ' + dispatcherCalls + ' 个通道调用）');
 }
 
 // 50. 模型选择也做成按钮（用户："把模型选择也一样改"）
@@ -3248,17 +3262,18 @@ await new Promise((res, rej) => {
     ' 分页 + 「全部」按条件出现 + 全部页不列文字 + 每行 3 个）');
 }
 
-// 52. 「🔗 打开 DSH」跳转按钮 + 「停止」二次确认
+// 52. 通知按钮 = 固定三个（选此会话 / 会话列表 / 当前模型）+ 「停止」二次确认
 //
-// 用户要求（2026-10-31）："① type=0 跳转 —— 最实用 / ② /停止 加二次确认弹窗 —— 防误点"
+// 演进（别再自作主张加按钮）：
+//   2026-10-31 我加了「🔗 打开 DSH」跳转按钮
+//   2026-11-01 用户："你怎么把按钮改了，不要链接按钮，以前的
+//              选此会话，会话列表，当前模型，这三个按钮哪去了"
+//   → **通知里就是这三个**；打开/复制链接统一走 `/链接`
 //
-// 真机验证过的结论（这三条决定了实现方式，别再改回去）：
-//   · `action.type=0` 跳转按钮有效 → 点了开浏览器
-//   · QQ 内置浏览器**只肯打开 https + 域名**：http 会被拦（弹"用浏览器打开"），
-//     **裸 IP 也打不开**（`https://100.103.130.41/` 实测失败）
-//   · 所以地址必须用 MagicDNS 域名（`https://xxx.tailabcd.ts.net/?token=…`），
-//     配 `tailscale serve` 拿到真证书后 QQ 能直接打开（实测 0.03 秒）
-//   · `action.modal` 二次确认有效（真机弹出确认框）
+// 仍然固定的技术结论（/链接 的按钮依赖它们）：
+//   · `action.type=0` 跳转有效，但 QQ 只肯打开 **https + 域名**（裸 IP / http 都被拦）
+//   · 域名要配 `tailscale serve` 才有真证书（否则点了打不开）
+//   · `action.modal` 二次确认有效（真机验证）
 {
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
   const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
@@ -3266,11 +3281,30 @@ await new Promise((res, rej) => {
   const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   const qqCode = qq.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 
-  // ① 跳转按钮：type: 0 + 域名 https（不能用裸 IP、不能用 http）
-  if (!/label: '🔗 打开 DSH', data: _open, type: 0/.test(code)) {
-    console.error('52. 通知里没有「🔗 打开 DSH」跳转按钮（或它没标 type:0）');
+  // ① 通知里必须是这三个按钮，且**不许**有链接/跳转按钮
+  if (!/label: '🗣 选此会话', data: '\/选择 id=' \+ aid, style: 4/.test(code)) {
+    console.error('52. 通知里没有「🗣 选此会话」按钮');
     process.exit(1);
   }
+  if (!/label: '📋 会话列表', data: '\/会话列表'/.test(code)) {
+    console.error('52. 通知里缺「📋 会话列表」按钮');
+    process.exit(1);
+  }
+  // 第三个按钮（2026-11-01 用户定稿）：从「当前模型」改成「指令菜单」，
+  // 点了发 /帮助 → 机器人回**全部指令按钮**（按钮上写指令名称，不写数字）
+  if (!/label: '⌨️ 指令菜单', data: '\/帮助'/.test(code)) {
+    console.error('52. 通知里第三个按钮不是「⌨️ 指令菜单」（应指向 /帮助，返回全部指令按钮）');
+    process.exit(1);
+  }
+  if (/label: '🤖 当前模型', data: '\/当前模型'/.test(code) && !/label: '⌨️ 指令菜单'/.test(code)) {
+    console.error('52. 通知里还是「当前模型」按钮 —— 用户要求换成「指令菜单」');
+    process.exit(1);
+  }
+  if (/label: '🔗 打开 DSH'/.test(code)) {
+    console.error('52. 通知里又出现了「🔗 打开 DSH」链接按钮 —— 用户明确说不要（打开链接走 /链接）');
+    process.exit(1);
+  }
+  // ② `/链接` 的跳转按钮仍要用域名 + serve（这条结论仍有效，只是位置变了）
   if (!/if \(ts && serveOk\) return 'https:\/\/' \+ ts \+ '\/\?token='/.test(code)) {
     console.error('52. 打开地址没有优先用 MagicDNS 域名 —— 裸 IP 在 QQ 里打不开（实测）');
     process.exit(1);
@@ -3312,42 +3346,46 @@ await new Promise((res, rej) => {
   console.log('52. 跳转+确认 OK（打开DSH用域名https + 裸IP被排除 + dnsName已解析 + 停止按钮 danger样式+modal + modal已透传）');
 }
 
-// 53. 通知里带「可复制链接」（围栏代码块 → QQ 原生「复制」按钮）
+// 53. 通知正文**不许**附加「可复制链接」代码块 —— 复制链接只在 `/链接` 指令里
 //
-// 用户要求（2026-10-31）："按钮可不可以点一下就复制，/链接指令里已经有文本链接了"
+// 演进（别改回去）：
+//   2026-10-31 用户："按钮可不可以点一下就复制" → 通知里加了围栏代码块（QQ 的复制按钮）
+//   2026-11-01 用户："我说带上可复制链接只是用在 /链接 指令里"
+//     → **通知里去掉**代码块，只保留「🔗 打开 DSH」跳转按钮；要复制就去发 /链接
 //
-// QQ 的按钮只有三种动作（0 跳转 / 1 回调 / 2 指令），**没有"复制到剪贴板"** ——
-// 但**围栏代码块自带一个「复制」按钮**（真机确认）：
-// 把链接塞进 ``` 代码块，点那个复制就等于一键复制。
+// 理由：通知正文的价值全在回复内容本身，代码块会挤占长度、也显得吵。
 //
-// 这里守三件事：
-//   ① 通知正文里要拼上代码块（且用 \n```\n 包住链接）
-//   ② 打开地址只算一次（qqOpenUrl 会问 serve 状态，别调两遍）
-//   ③ toQQMarkdown 不能破坏围栏（否则复制按钮消失）
+// 这里守四件事：
+//   ① 通知里**不能**再出现"代码块复制"的痕迹（说明文案 / ``` 拼接）
+//   ② 打开地址仍然只算一次（qqOpenUrl 会问 serve 状态）
+//   ③ 通知仍然把 keyboard 传进去（按钮要在）
+//   ④ toQQMarkdown 不能破坏围栏（/链接 那边还靠它）
 {
   const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
   const qq = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
   const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 
-  if (!/点下面代码块右上角的「复制」/.test(code)) {
-    console.error('53. 通知里没有"可复制链接"的说明文案 —— 用户不知道能复制');
+  if (/点下面代码块右上角的「复制」/.test(code)) {
+    console.error('53. 通知里又拼上了"可复制链接"的说明文案 —— 用户明确说复制链接只放 /链接');
     process.exit(1);
   }
-  if (!/\+ _open \+ '\\n```'/.test(code)) {
-    console.error('53. 链接没有包进围栏代码块 —— QQ 不会给「复制」按钮');
+  if (/\+ _open \+ '\\n```'/.test(code)) {
+    console.error('53. 通知正文又在拼围栏代码块 —— 用户明确说复制链接只放 /链接');
     process.exit(1);
   }
   const calls = (code.match(/await qqOpenUrl\(\)/g) || []).length;
-  if (calls !== 1) {
+  // 2026-11-01：通知里的「🔗 打开 DSH」撤掉后，qqOpenUrl 暂时没有调用方（保留作参考实现），
+  // 所以这里只断言"要么 0 次、要么正好 1 次" —— 不能出现"每条通知调两遍"的浪费。
+  if (calls > 1) {
     console.error('53. qqOpenUrl() 被调用了 ' + calls + ' 次 —— 每条通知会多问两次 tailscale serve 状态');
     process.exit(1);
   }
-  // toQQMarkdown 必须原样保留三反引号（它只处理图片/分隔线，不该碰代码块）
+  // toQQMarkdown 必须原样保留三反引号（/链接 的代码块还靠它）
   if (/replace\(\/`\{3\}/.test(qq)) {
-    console.error('53. toQQMarkdown 在改写三反引号 —— 代码块被破坏后「复制」按钮会消失');
+    console.error('53. toQQMarkdown 在改写三反引号 —— /链接 的代码块与「复制」按钮会被破坏');
     process.exit(1);
   }
-  console.log('53. 可复制链接 OK（围栏代码块 + 说明文案 + qqOpenUrl 只调一次 + 转换不破坏围栏）');
+  console.log('53. 通知不带复制块 OK（通知只有三个固定按钮；复制链接在 /链接 里）');
 }
 
 // 54. `/链接` 要给三条地址、且 QQ 里带「复制」按钮
@@ -3457,7 +3495,231 @@ await new Promise((res, rej) => {
   console.log('55. /链接 跳转按钮 OK（只收 https + type:0 + P2P 明确排除 + 文案「🔗 P2P」）');
 }
 
+// 56. 「跑的到底是哪份代码」必须能自证（`/remote/info` 的 codeStale）
+//
+// 2026-11-02 用户："我重启过好几次了，之前是改没了，今天又出现了"
+// 版本号是模块加载时的快照 —— 既不能证明文件被覆盖过，也不能证明进程没重启。
+// 新增 loadedAt / codeMtime / codeStale：codeStale=true 就说明磁盘比进程新，必须重启。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  if (!/export const PLUGIN_LOADED_AT = Date\.now\(\);/.test(code)) {
+    console.error('56. 没有 PLUGIN_LOADED_AT —— 无法判断进程何时加载的代码');
+    process.exit(1);
+  }
+  if (!/codeStale: PLUGIN_CODE_MTIME > PLUGIN_LOADED_AT \+ 1000/.test(code)) {
+    console.error('56. /remote/info 没有 codeStale —— 用户还是得靠猜"要不要重启"');
+    process.exit(1);
+  }
+  if (!/loadedAt: PLUGIN_LOADED_AT, codeMtime: PLUGIN_CODE_MTIME/.test(code)) {
+    console.error('56. /remote/info 没有把 loadedAt / codeMtime 吐出来');
+    process.exit(1);
+  }
+  console.log('56. 代码自证 OK（loadedAt + codeMtime + codeStale —— 一眼看出要不要重启）');
+}
+
+// 57. QQ 转发前要发「思考中」回执（和微信一致），且失败可诊断
+//
+// 用户（2026-11-02）："从 QQ 直接与 dsh 对话时怎么没有反馈消息了"
+// 查下来这条回执**只有微信有**，QQ 分支直接 return 转发，中间零反馈。
+// 另外：回执只在**已选会话**时发（否则先"思考中"再"请先选会话"，自相矛盾），
+// 发没发/为什么没发记在 /remote/diag 的 qqAck，消息本身记在 qqLastMsg。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // QQ 分支转发用的是 relayContent（可能带图），且 ack 与转发之间夹着诊断代码
+  if (!/qqbotChannel\.send\(_ackTgt, '已收到指令，AI 思考中，请稍等…'\)[\s\S]{0,900}?return await cmdRelayToSession\(st, relayContent\)/.test(code)) {
+    console.error('57. 「思考中」回执没有紧挨在 cmdRelayToSession 之前（QQ 分支）');
+    process.exit(1);
+  }
+  if (!/if \(st\.selected && qqbotChannel && typeof qqbotChannel\.send === 'function' && _ackTgt\)/.test(code)) {
+    console.error('57. 回执没有判"已选会话 + 有目标"');
+    process.exit(1);
+  }
+  if (!/catch \(e\) \{\s*qqbotAckInfo = \{ at: new Date\(\)\.toLocaleTimeString\(\), sent: false, error:/.test(code)) {
+    console.error('57. 回执没包 try/catch —— 传给 QQ 失败会把整条回复吞掉');
+    process.exit(1);
+  }
+  if (!/qqAck: qqbotAckInfo/.test(code) || !/qqLastMsg: qqLastMsg/.test(code)) {
+    console.error('57. /remote/diag 没有 qqAck / qqLastMsg —— 回执没出现时无法诊断');
+    process.exit(1);
+  }
+  console.log('57. QQ 思考中回执 OK（在转发前 + 判已选会话 + 失败不吞回复 + qqAck/qqLastMsg 可诊断）');
+}
+
+// 58. 没选会话时**自动选最近会话**（用户不该被迫先 /选择）
+//
+// 用户（2026-11-02）："我按了按钮选此会话，这也不能作为 /选择的平替吗"
+// —— 按钮本该等价于 /选择，但实测那条按钮消息没生效。
+// 与其让用户反复绕，不如让"直接说话"就能用：
+//   没选会话 → 自动取 sessionMenuList()[0]（已过滤空壳 + 按 createdAt 倒序）
+//   → 回一句「已自动切到最近会话：xxx」
+//
+// 守的点：
+//   ① 自动选择发生在转发之前
+//   ② 只在**未选会话**时触发（已选的不许乱改）
+//   ③ 用了共用的 sessionMenuList（保证"最近活跃"口径一致）
+//   ④ 提示发送失败不影响转发
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  if (!/if \(!st\.selected\) \{[\s\S]{0,400}?await sessionMenuList\(\)/.test(code)) {
+    console.error('58. 没有"未选会话时自动选最近会话" —— 用户还是得先 /选择');
+    process.exit(1);
+  }
+  if (!/st\.selected = _autoList\[0\]\.header\.id;/.test(code)) {
+    console.error('58. 自动选择没有真的把 selected 设成最近会话');
+    process.exit(1);
+  }
+  if (!/已自动切到最近会话：/.test(code)) {
+    console.error('58. 自动选择后没有提示用户切到哪个会话');
+    process.exit(1);
+  }
+  const autoAt = code.indexOf('await sessionMenuList()');
+  const relayAt = code.indexOf('return await cmdRelayToSession(st, relayContent)', autoAt);
+  if (autoAt < 0 || relayAt < 0) {
+    console.error('58. 自动选择没有发生在转发之前');
+    process.exit(1);
+  }
+  console.log('58. 自动选会话 OK（未选时取最近活跃 + 提示 + 在转发之前）');
+}
+
+// 59. 选中的会话必须**持久化**，重启后自动恢复（"关 DSH 前选的对话，重启后继续"）
+//
+// 用户（2026-11-02）："能不能自动继续对话，就是我关 dsh 前选的对话继续对话"
+//
+// 之前 `qqbotCmdState.selected` 只在内存里 —— 一重启就丢，每次都得重新 /选择。
+// 现在：三处选择动作都落盘到 store 的 `qqbot.selected`，启动时 qqbotRestoreSelected() 恢复；
+// 会话若已不存在则清空（让"自动选最近会话"兜底，而不是往不存在的会话里发消息）。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  const saves = (code.match(/qqbotSaveConfig\(\{ selected: /g) || []).length;
+  if (saves < 3) {
+    console.error('59. 只有 ' + saves + ' 处把"选中的会话"落盘 —— 应有三处（按 id 选/按序号选/自动选）');
+    process.exit(1);
+  }
+  if (!/async function qqbotRestoreSelected\(\)/.test(code)) {
+    console.error('59. 没有 qqbotRestoreSelected() —— 重启后不会恢复上次选中的会话');
+    process.exit(1);
+  }
+  if (!/qqbotRestoreSelected\(\)/.test(code)) {
+    console.error('59. 启动路径没有调用 qqbotRestoreSelected()');
+    process.exit(1);
+  }
+  // 恢复时要校验会话还在，否则清空
+  if (!/if \(!title\) \{[\s\S]{0,220}?qqbotSaveConfig\(\{ selected: null \}\)/.test(code)) {
+    console.error('59. 恢复时没有校验"会话是否仍存在" —— 会把消息发进已删除的会话');
+    process.exit(1);
+  }
+  console.log('59. 会话持久化 OK（三处落盘 + 启动恢复 + 会话不存在则清空）');
+}
+
+// 60. 7 条共享指令必须**只有一份实现**（dispatchSharedCommand），且它不能调用自己
+//
+// 背景（2026-11-02 重构）：这 7 条指令（会话列表/选择/当前会话/历史内容/当前模型/
+// 切换模型/选强度）原本在 5 个通道里各写一份 —— 同一处修改要改 5 遍，
+// 漏一处就"某个通道没生效"，本次开发因此出过 5 次 bug。
+//
+// 重构时我用脚本做批量替换，**把 helper 自己的函数体也替换成了对它的调用**
+// → 无限递归（幸好守卫 #48 先炸了才发现）。所以这条守卫必须盯三件事：
+//   ① helper 存在
+//   ② helper 函数体里**不许**出现对自己的调用（防递归）
+//   ③ 5 个通道都调它，且通道里不再出现这 7 条指令的私有实现
+{
+  const src = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  const at = code.indexOf('async function dispatchSharedCommand(');
+  if (at < 0) {
+    console.error('60. 没有 dispatchSharedCommand() —— 共享指令又被复制回各通道了');
+    process.exit(1);
+  }
+  // 截出函数体：从声明到下一个 "\n    }\n"
+  const bodyStart = code.indexOf('{', at);
+  let depth = 0, end = -1;
+  for (let i = bodyStart; i < code.length; i++) {
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  const body = end > bodyStart ? code.slice(bodyStart, end) : '';
+  if (!body || body.length < 100) {
+    console.error('60. dispatchSharedCommand 的函数体解析失败');
+    process.exit(1);
+  }
+  if (body.indexOf('dispatchSharedCommand(') >= 0) {
+    console.error('60. dispatchSharedCommand 内部调用了自己 —— 无限递归！');
+    process.exit(1);
+  }
+  const seven = ['cmdSessionList', 'cmdSelectSession', 'cmdCurrentSession', 'cmdHistory',
+    'cmdCurrentModel', 'cmdSwitchModel', 'cmdPickEffort'];
+  const missing = seven.filter((k) => body.indexOf(k) < 0);
+  if (missing.length) {
+    console.error('60. 共用分发缺少指令：' + missing.join(', '));
+    process.exit(1);
+  }
+  // 这 7 个 cmd* 的调用点，整个文件里应该只在 helper 内出现一次（外加它们的定义）
+  for (const k of seven) {
+    const calls = (code.match(new RegExp(k + '\\(', 'g')) || []).length;
+    // 1 次调用（helper 内）+ 1 次定义（async function cmdXxx() 不带括号形式，故为 1）
+    if (calls > 2) {
+      console.error('60. ' + k + ' 在文件里被调用 ' + calls + ' 次 —— 有通道又复制了私有实现');
+      process.exit(1);
+    }
+  }
+  const dispatcherCalls = (code.match(/await dispatchSharedCommand\(/g) || []).length;
+  if (dispatcherCalls < 5) {
+    console.error('60. 只有 ' + dispatcherCalls + ' 个通道走共用分发（应 5 个）');
+    process.exit(1);
+  }
+  console.log('60. 共享指令唯一实现 OK（无自我递归 + 7 条齐全 + ' + dispatcherCalls + ' 个通道共用）');
+}
+
+// 61. 启动通知要带上**指令菜单键盘**（用户："在 dsh 启动后除了发 DSH已启动 再发一个指令菜单"）
+//
+// 之前启动只发一行纯文本「DSH已启动，任务监听中」，用户还得自己想起来发 /帮助
+// 才能看到指令按钮。现在启动消息直接挂上 QQ_COMMAND_MENU（和 /帮助 同一套按钮）。
+{
+  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const code = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  if (!/import \{[^}]*QQ_COMMAND_MENU[^}]*\} from '\.\/qqbot\.mjs'/.test(code)) {
+    console.error('61. 没有从 qqbot.mjs 导入 QQ_COMMAND_MENU');
+    process.exit(1);
+  }
+  // 启动消息必须挂键盘
+  if (!/makeQQKeyboard\(QQ_COMMAND_MENU\)/.test(code)) {
+    console.error('61. 启动通知没有挂指令菜单键盘');
+    process.exit(1);
+  }
+  // 必须带 md: true —— 键盘只能随 markdown 消息下发（2026-11-02 踩过：漏了 md 按钮全丢）
+  if (!/qqbotChannel\.send\(t, _bootText, _bootKb \? \{ md: true, keyboard: _bootKb \} : undefined\)/.test(code)) {
+    console.error('61. 启动通知没有同时传 md 和 keyboard —— 键盘会被 QQ 静默丢掉，只显示文字');
+    process.exit(1);
+  }
+  // sendRaw 里必须有防呆：传了 keyboard 就自动走 markdown
+  const qqSrc = fs.readFileSync(new URL('../lib/qqbot.mjs', import.meta.url), 'utf8');
+  if (!/const useMd = \(!!\(opts && opts\.md\) \|\| wantKb\)/.test(qqSrc)) {
+    console.error('61. sendRaw 没有"有键盘就自动走 markdown"的防呆');
+    process.exit(1);
+  }
+  // 键盘构造失败不能让启动通知整体挂掉
+  if (!/try \{ _bootKb = makeQQKeyboard\(QQ_COMMAND_MENU\); \} catch \(e\)/.test(idx)) {
+    console.error('61. 键盘构造没有兜底 —— 构造失败会连带启动通知一起失败');
+    process.exit(1);
+  }
+  console.log('61. 启动通知 OK（DSH已启动 + 指令菜单键盘，键盘失败自动退化为纯文本）');
+}
+
 proxy.close();
 target.close();
 console.log('ALL TESTS DONE');
 process.exit(0);
+
+
+
+
