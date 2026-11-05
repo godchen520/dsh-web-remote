@@ -2130,404 +2130,41 @@ await new Promise((res, rej) => {
   console.log('38. 图片登记 OK（admitPromptContent 在发送前 + 用登记后 blocks + 2 条降级 + 裸块仅 1 处 + 踩坑说明留存）');
 }
 
-// 39. 窄屏适配层：去掉图标栏那条竖栏 + 设置弹窗窄屏重排
-// 用户反馈：① 手机上侧边栏收起后那条竖栏仍然占位置；
-//           ② 手机端的设置页面被挤压的难以使用。
+// 39. 侧边栏收起已移除（2026-11-05）
 //
-// v5.7.0 重构：从「JS 改写内联 grid-template-columns」改成「纯 CSS + !important」。
-// 原因：!important 本来就能压过内联样式，不需要 JS 去写，也就不需要
-// 「写 → 被 React 写回 → 再写」的循环和幂等标记。
+// 用户："现在解决左侧栏的问题，把插件里左侧栏收起的部分都清了"
+// 背景：DSH 官方版本开始自带左侧栏收起按钮，插件的自建把手与它重叠
+// （用户截图里红/蓝两个按钮叠在一起），窄屏适配 CSS 也与官方布局互相干扰。
 //
-// 留在守卫里的**关键事实**（改错地方会白改，甚至改出新问题）：
-//   · 竖栏宽度来自 AppFrame 的 grid 第一条轨道，不是侧边栏元素的宽度 ——
-//     只把侧边栏压成 0 宽，轨道照样占 56px，只会从"有内容的竖栏"变成"一条空白"。
-//   · **必须逐列显式钉住轨道**（grid-column:1/2 / 2/3 / 3/4）。官方收起态的侧边栏是
-//     绝对定位浮层、脱离网格流，中间的 centerCol 会**自动落到那条已经 0 宽的第一轨道**
-//     上，把对话挤成 0 宽 —— 而且是间歇性的。参考实现（dsh-remote-web-ui）为此专门
-//     补了三条规则，我们照抄了思路。
-//   · ⚠ 第三条轨道是 _rightbarCol。参考实现写的是 _detailsCol，那个后缀
-//     **在本版 DSH 里不存在**（逐包核实过）—— 照抄会让右侧栏轨道失去约束。
-//   · 收起状态用 DSH 自己的 data-sidebar-collapsed 判定，**不能**用哈希 class。
-//   · 选择器用**语义后缀**（[class$="_centerCol"]）：CSS Module 的类名是
-//     「哈希前缀 + 语义后缀」（例：pI_x6G_centerCol），官方重建只换哈希时后缀选择器
-//     依然有效。但**绝不能把哈希前缀写死**（pI_x6G_ / VOzbGW_ / hHd-Xa_ 都随版本变）。
-//   · 所有规则必须挂在 body.webrm-mobile 下：style 标签常驻 head，
-//     不加作用域的话**桌面端的设置面板也会被压成竖排**（参考实现在 1440px 上实测过）。
+// 决定（用户三选）：按钮 + 窄屏 CSS 全删，布局完全交回 DSH；不留解释性注释。
+//
+// 本守卫改成**反向断言** —— 确保这些东西真的不再生效：
+//   ① 不再调用 createRailButton()（把手不创建）
+//   ② 不再把 railTag / adaptTag 追加进 head（样式不注入）
+//   ③ 注入脚本里不能出现反引号（会把整段模板截断，node --check 查不出来）
 {
-  const p = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
-  const idx = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
-  // 剥掉注释后再做「标识符 / 选择器」类断言。
-  // 教训（连踩三次）：注释里**正当提到**某个名字（"参考实现用的 _detailsCol 在本版
-  // 不存在"、"那套测量逻辑连同 railAnchorPct 一起删掉了"）会让断言误报，
-  // 而误报的代价是逼着人删掉本来有价值的说明。
-  const stripComments = (s) => s
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^[ \t]*\/\/.*$/gm, '');
-  const pc = stripComments(p);
-
-  // ⓪ 注入脚本必须能独立解析
-  //    教训：panel.mjs 整体是一个反引号模板字符串，注释里混进一个反引号就会
-  //    把整个注入脚本截断 —— 而 node --check 只查宿主文件、查不出来。
-  //    ⚠ 必须用**求值后**的 INJECT_SCRIPT，不能拿模板的原文切片：
-  //      模板里有 \\' 这类转义（例如字体名 \'SF Pro Text\'），原文切片喂给
-  //      new Function 会解析失败 —— 那是取法的问题，不是脚本的问题（踩过）。
-  const bt = (p.match(/`/g) || []).length;
-  if (bt !== 2) {
-    console.error('39. panel.mjs 里的反引号不是 2 个（模板边界）—— 注释里混进反引号会截断整个注入脚本');
+  const panel = fs.readFileSync(new URL('../lib/panel.mjs', import.meta.url), 'utf8');
+  const m = panel.match(/export const INJECT_SCRIPT = `([\s\S]*?)`;/);
+  if (!m) { console.error('39. 找不到 INJECT_SCRIPT 模板'); process.exit(1); }
+  const inj = m[1];
+  if (inj.indexOf(String.fromCharCode(96)) >= 0) {
+    console.error('39. 注入脚本里出现了反引号 —— 会截断整段脚本');
     process.exit(1);
   }
-  let injectSrc = null;
-  try {
-    const mod = await import(new URL('../lib/panel.mjs', import.meta.url).href);
-    injectSrc = mod.INJECT_SCRIPT;
-  } catch (e) {
-    console.error('39. 无法载入 lib/panel.mjs: ' + e.message);
+  if (inj.indexOf('document.head.appendChild(railTag)') >= 0) {
+    console.error('39. 仍在注入把手样式（railTag）—— 侧边栏收起没清干净');
     process.exit(1);
   }
-  try {
-    new Function(injectSrc);
-  } catch (e) {
-    console.error('39. 注入脚本无法独立解析 —— 模板字符串被截断了: ' + e.message);
+  if (inj.indexOf('document.head.appendChild(adaptTag)') >= 0) {
+    console.error('39. 仍在注入窄屏适配 CSS（adaptTag）—— 用户要求全删');
     process.exit(1);
   }
-
-  // ① 去竖栏必须是纯 CSS + !important，且 JS 里不得再改写内联样式
-  if (!/\[class\$="_frame"\]:has\(\[class\*="_centerCol"\]\)\[data-sidebar-collapsed\]\{grid-template-columns:0 minmax\(0,1fr\) 0 !important\}/.test(pc)) {
-    console.error('39. 缺少「纯 CSS 压掉第一条轨道」的规则（!important 才能压过 React 的内联样式）');
+  const calls = (inj.match(/^[ \t]*(?:try \{ )?createRailButton\(\);/gm) || []).length;
+  if (calls > 0) {
+    console.error('39. 仍在调用 createRailButton() —— 会与 DSH 自带的收起按钮重叠');
     process.exit(1);
   }
-  if (/frame\.style\.gridTemplateColumns\s*=/.test(pc)) {
-    console.error('39. 还在用 JS 改写内联 grid-template-columns —— 已改为纯 CSS，这条路径应当删掉');
-    process.exit(1);
-  }
-  if (!/function syncMobileAdapt\(/.test(pc)) {
-    console.error('39. 缺少 syncMobileAdapt —— 适配层的 body class 没人切');
-    process.exit(1);
-  }
-  // 接线：定义在、但没人调用 = 静默失效（改名时最容易漏）
-  const adaptCalls = (pc.match(/syncMobileAdapt\(\)/g) || []).length;
-  if (adaptCalls < 4) {
-    console.error('39. syncMobileAdapt 的调用点只有 ' + adaptCalls + ' 处 —— 应有 4 处（建把手 / resize / 定时兜底 / fetchInfo 回包）');
-    process.exit(1);
-  }
-  if (/syncMobileRail/.test(pc)) {
-    console.error('39. 还残留旧函数名 syncMobileRail —— 改名没改全');
-    process.exit(1);
-  }
-  // 只在这个函数体内禁 style.width —— 插件别处（按钮尺寸）合法地在用
-  const adaptAt = p.indexOf('function syncMobileAdapt(');
-  const adaptFn = adaptAt < 0 ? '' : stripComments(p.slice(adaptAt, adaptAt + 2200));
-  if (/\bstyle\.width\s*=/.test(adaptFn)) {
-    console.error('39. 出现"把元素宽度压成 0"的写法 —— 对网格轨道无效，改错地方了');
-    process.exit(1);
-  }
-
-  // ② 必须逐列钉住轨道（否则 centerCol 会落到 0 宽的第一轨道上）
-  if (!/\[class\*="_sidebarCol"\]\{grid-column:1\/2\}/.test(pc)) {
-    console.error('39. 没有把侧边栏钉到第 1 轨道 —— 收起态它脱离网格流，会带偏后面几列');
-    process.exit(1);
-  }
-  if (!/\[class\$="_centerCol"\]\{grid-column:2\/3\}/.test(pc)) {
-    console.error('39. 没有把 centerCol 钉到第 2 轨道 —— 它会自动落到 0 宽的第 1 轨道，把对话挤成 0 宽');
-    process.exit(1);
-  }
-  if (!/\[class\$="_rightbarCol"\]\{grid-column:3\/4\}/.test(pc)) {
-    console.error('39. 没有把右侧栏钉到第 3 轨道（本版后缀是 _rightbarCol）');
-    process.exit(1);
-  }
-
-  // ③ 判定钩子必须是 DSH 自己的属性，且不得写死哈希前缀
-  if (!/\[data-sidebar-collapsed\]/.test(pc)) {
-    console.error('39. 没有用 data-sidebar-collapsed 判定收起 —— 换成哈希 class 会随 DSH 升级失效');
-    process.exit(1);
-  }
-  if (/hHd-Xa_|pI_x6G_|VOzbGW_/.test(pc)) {
-    console.error('39. 写死了 DSH 的哈希前缀 —— 只允许用语义后缀（[class$="_xxx"]）');
-    process.exit(1);
-  }
-  if (/_toggle/.test(pc)) {
-    console.error('39. 依赖了 _toggle 哈希 class —— 原生按钮应该按 aria-label 定位');
-    process.exit(1);
-  }
-  if (!/function isRailCollapsed\(/.test(pc)) {
-    console.error('39. 缺少 isRailCollapsed —— 收起状态要单独可测');
-    process.exit(1);
-  }
-
-  // ④ 适配层必须有 body class 作用域，且每条规则都挂在它下面
-  if (!/MOBILE_CLASS = 'webrm-mobile'/.test(pc) || !/RAIL_HIDDEN_CLASS = 'webrm-rail-hidden'/.test(pc)) {
-    console.error('39. 缺少 webrm-mobile / webrm-rail-hidden 两个 body class');
-    process.exit(1);
-  }
-  if (!/body\.classList\.add\(MOBILE_CLASS\)/.test(pc) || !/body\.classList\.remove\(MOBILE_CLASS\)/.test(pc)) {
-    console.error('39. 没有按窄屏开关 webrm-mobile —— 适配层会漏到桌面端');
-    process.exit(1);
-  }
-  const cssAt = p.indexOf('var ADAPT_CSS = [');
-  const cssEnd = p.indexOf('].join(\'\')', cssAt);
-  const cssBlock = cssAt < 0 || cssEnd < 0 ? '' : stripComments(p.slice(cssAt, cssEnd));
-  const ruleCount = (cssBlock.match(/^\s*'body\./gm) || []).length;
-  if (ruleCount < 10) {
-    console.error('39. ADAPT_CSS 里的规则太少（' + ruleCount + ' 条）—— 设置弹窗重排那几条丢了？');
-    process.exit(1);
-  }
-  const bodyPrefixed = (cssBlock.match(/'body\.' \+ MOBILE_CLASS/g) || []).length;
-  if (bodyPrefixed !== ruleCount) {
-    console.error('39. ADAPT_CSS 里有 ' + (ruleCount - bodyPrefixed) + ' 条规则没挂 body class 作用域 —— style 标签常驻 head，会改坏桌面端');
-    process.exit(1);
-  }
-  // 规则里（不是注释里）绝不能出现 _detailsCol
-  if (/_detailsCol/.test(cssBlock)) {
-    console.error('39. 规则里出现了 _detailsCol —— 本版 DSH 的右侧栏后缀是 _rightbarCol');
-    process.exit(1);
-  }
-
-  // ⑤ 设置弹窗窄屏重排（用户反馈："手机端的设置页面被挤压的难以使用"）
-  //    官方是固定宽两栏（左导航 + 右内容），窄屏下内容列被挤到主题卡竖排。
-  if (!/\[class\$="_overlay"\] \[class\$="_panel"\]\{flex-direction:column/.test(pc)) {
-    console.error('39. 设置弹窗没有改成纵向堆叠 —— 窄屏下内容列还是被固定宽导航挤扁');
-    process.exit(1);
-  }
-  if (!/\[class\$="_nav"\]\{flex-direction:row/.test(pc) || !/\[class\$="_navList"\]\{flex-direction:row/.test(pc)) {
-    console.error('39. 设置弹窗的导航没有改成横向一条（nav + navList 两层都要改）');
-    process.exit(1);
-  }
-  if (!/\[class\$="_navTitle"\]\{display:none\}/.test(pc)) {
-    console.error('39. 导航横排后没有隐藏 navTitle —— 标题会挤在横向列表里');
-    process.exit(1);
-  }
-  // navCell 是 clsx() 拼出来的（可能带第二个类），后缀匹配会失配 → 必须用包含匹配
-  if (!/\[class\*="_navCell"\]\{/.test(pc)) {
-    console.error('39. navCell 没有用包含匹配 —— 它是 clsx() 拼的，[class$=] 会失配');
-    process.exit(1);
-  }
-  if (/\[class\$="_navCell"\]\{/.test(pc)) {
-    console.error('39. navCell 用了后缀匹配 —— clsx() 拼类时它会静默失效');
-    process.exit(1);
-  }
-  if (!/\[class\$="_content"\]\{flex:1;min-height:0\}/.test(pc)) {
-    console.error('39. 设置弹窗的内容列没有拿到 flex:1 —— 纵向堆叠后它必须自己撑开');
-    process.exit(1);
-  }
-
-  // ④ 展开必须复用 DSH 原生按钮（中英两种 aria-label 都要认）
-  if (!/打开侧边栏[\s\S]{0,80}open sidebar/i.test(p)) {
-    console.error('39. 没有按 aria-label 找原生「打开侧边栏」按钮（需同时认中英文）');
-    process.exit(1);
-  }
-
-  // ⑥ 旧的幂等机制应当彻底消失：不再有标记，也不再有挂在 frame 上监听内联 style 的
-  //    观察器（纯 CSS 方案下这两样都不需要；留着就是死代码）
-  if (/data-webrm-rail/.test(pc)) {
-    console.error('39. 还留着 data-webrm-rail 幂等标记 —— 纯 CSS 方案不需要它了');
-    process.exit(1);
-  }
-  if (/attributeFilter:\s*\['style'/.test(pc)) {
-    console.error('39. 还挂着监听内联 style 的 observer —— 纯 CSS 方案不需要重放');
-    process.exit(1);
-  }
-
-  // ⑥ 断点必须对齐 DSH 自己的 SIDEBAR_AUTO_COLLAPSE(1024)，不是 768
-  if (!/RAIL_BP\s*=\s*1024/.test(p) || !/window\.innerWidth\s*<\s*RAIL_BP/.test(p)) {
-    console.error('39. 窄屏断点没有对齐 DSH 的 SIDEBAR_AUTO_COLLAPSE(1024) —— 768~1023px 会漏掉');
-    process.exit(1);
-  }
-
-  // ⑦ 服务端：默认开 + 下发到 /remote/info + 有端点可关
-  if (!/DEFAULT_MOBILE_RAIL_HIDDEN\s*=\s*true/.test(idx)) {
-    console.error('39. 手机端默认开没生效（DEFAULT_MOBILE_RAIL_HIDDEN 不是 true）');
-    process.exit(1);
-  }
-  if (!/mobileRailHidden:\s*mobileRailHidden\(\)/.test(idx)) {
-    console.error('39. snapshot 没有下发 mobileRailHidden —— 客户端拿不到开关');
-    process.exit(1);
-  }
-  if (!/path:\s*'\/remote\/ui'/.test(idx)) {
-    console.error('39. 缺少 /remote/ui 端点 —— 关不掉这个行为');
-    process.exit(1);
-  }
-
-  // ⑧ 把手必须默认隐藏、靠 data-show="1" 才出现；并且**钉在左上角**、让标题行让位
-  //    用户反馈："展开和收起的位置差得太远了" —— 收起按钮在左上、把手原来在垂直居中。
-  //    解法不是去量原生按钮的高度（那套已删），而是把把手钉死左上 + 标题行加左内边距。
-  if (!/#webrm-railopen\{/.test(pc) || !/#webrm-railopen\[data-show="1"\]/.test(pc)) {
-    console.error('39. 展开把手缺少样式或显示开关（应 data-show="1" 才显示）');
-    process.exit(1);
-  }
-  if (!/top:calc\(4px \+ env\(safe-area-inset-top\)\)/.test(pc) || !/left:calc\(8px \+ env\(safe-area-inset-left\)\)/.test(pc)) {
-    console.error('39. 把手没有钉在左上角并避开刘海/圆角（缺 env(safe-area-inset-*)）');
-    process.exit(1);
-  }
-  if (!/\[class\$="_titleRow"\]\{padding-left:52px\}/.test(pc)) {
-    console.error('39. 收起态没有给标题行让出 52px —— 浮动把手会压住标题');
-    process.exit(1);
-  }
-  if (!/data-webrm-adapt/.test(pc)) {
-    console.error('39. 适配样式表没有 data-webrm-adapt 标识 —— 诊断里认不出它注入没有');
-    process.exit(1);
-  }
-  if (/railAnchorPct|rememberRailAnchor/.test(pc)) {
-    console.error('39. 还留着"量原生按钮高度当锚点"那套 —— 已改为钉死左上角，应删掉');
-    process.exit(1);
-  }
-
-  // ⑨ 收起/展开必须**立刻**响应
-  //    用户实测："侧栏按钮显示有延迟，打开侧栏要过一会才消失，关闭侧栏也要等一会才出现。"
-  //    根因：重构时删掉了挂在 frame 上的观察器，只剩 2 秒定时兜底 —— 兜底被当成了主路径。
-  if (!/function watchCollapseState\(/.test(pc)) {
-    console.error('39. 缺少 watchCollapseState —— 收起/展开只能等 2 秒定时兜底，把手显隐会肉眼可见地延迟');
-    process.exit(1);
-  }
-  // 必须盯 data-sidebar-collapsed：布局层渲染的是 `sidebarCollapsed || void 0`，
-  // 收起时属性在场、展开时被移除 —— 一次切换只触发一次（盯 class 会被 hover/动画刷爆）。
-  if (!/attributeFilter:\s*\['data-sidebar-collapsed'\]/.test(pc)) {
-    console.error('39. 收起观察器没有盯 data-sidebar-collapsed —— 盯 class 会被无关变化刷爆，盯别的又抓不到');
-    process.exit(1);
-  }
-  if (!/watchCollapseState\(\)/.test(pc)) {
-    console.error('39. watchCollapseState 定义了但没人调用 —— 又回到 2 秒延迟');
-    process.exit(1);
-  }
-
-  // ⑨ 窄屏判定不能只看 innerWidth
-  //    实测教训：手机上报出的 innerWidth 未必 < 1024，只看它会导致整个特性静默不生效
-  //    （脚本在跑、代码在页面里、版本徽标也对，就是没反应）。必须留触摸设备兜底。
-  if (!/function railNarrow\(/.test(p)) {
-    console.error('39. 缺少 railNarrow —— 把窄屏判定写回只看 innerWidth 会让手机上静默失效');
-    process.exit(1);
-  }
-  if (!/pointer:\s*coarse/.test(p)) {
-    console.error('39. railNarrow 没有触摸设备兜底（pointer: coarse）—— innerWidth 不准时就哑了');
-    process.exit(1);
-  }
-  if (!/narrow\s*=\s*railNarrow\(\)/.test(p)) {
-    console.error('39. syncMobileAdapt 没有改用 railNarrow()');
-    process.exit(1);
-  }
-
-  // ⑩ 必须能自证：异常被 try/catch 吞掉后失败是静默的，得有回报通道
-  //    教训：这次排查全靠猜，就是因为没有任何可观测性。
-  if (!/function railReport\(/.test(p) || !/fetch\('\/remote\/railreport'/.test(p)) {
-    console.error('39. 缺少 railReport 上报 —— 再出问题还是只能靠猜');
-    process.exit(1);
-  }
-  if (!/railReport\(false,/.test(pc) || !/railDebug/.test(idx) || !/path:\s*'\/remote\/railreport'/.test(idx)) {
-    console.error('39. 上报没有接上（客户端调用 / 服务端存储 / snapshot 下发 三者缺一）');
-    process.exit(1);
-  }
-
-  // ⑪ 上报必须等渲染完再发（用「_centerCol 是否出现」当就绪信号），
-  //    并且带上 body class 的**实际状态** —— 否则又只能靠猜。
-  //    教训：最早那次同步发生在页面初始化，AppFrame 还没渲染出来，
-  //    只报第一次的话永远是"还没渲染" —— 拿它当结论会被带偏一整轮。
-  if (!/railReports/.test(pc) || !/railReport\(true\)/.test(pc)) {
-    console.error('39. 上报只发第一次就会永远报"还没渲染" —— 必须等渲染完｜并有稳态兜底');
-    process.exit(1);
-  }
-  if (!/querySelector\('\[class\*="_centerCol"\]'\)/.test(pc)) {
-    console.error('39. 上报没有用「_centerCol 是否出现」当就绪信号 —— 会把"还没渲染"当成结论');
-    process.exit(1);
-  }
-  if (!/function railProbe\(/.test(pc) || !/attrCount/.test(pc)) {
-    console.error('39. 没有 DOM 取证（railProbe）—— 又只能靠猜');
-    process.exit(1);
-  }
-  if (!/bodyMobile:/.test(pc) || !/bodyRailHidden:/.test(pc) || !/adaptCss:/.test(pc)) {
-    console.error('39. 上报里没有 body class 的实际状态（bodyMobile / bodyRailHidden / adaptCss）');
-    process.exit(1);
-  }
-  // 服务端要留多条，才能对比「首次」与「稳态」
-  if (!/railDebug = \(railDebug \|\| \[\]\)\.concat\(\[entry\]\)/.test(idx)) {
-    console.error('39. 服务端 railDebug 只存最后一条 —— 没法对比首次与稳态');
-    process.exit(1);
-  }
-
-  // ⑫ 抄图标要找得到原生按钮：只有收起态才叫「打开侧边栏」，展开态叫「收起侧边栏」
-  if (!/收起侧边栏/.test(pc) || !/collapse sidebar/.test(pc)) {
-    console.error('39. 找原生按钮只认「打开侧边栏」—— 展开态抄不到图标');
-    process.exit(1);
-  }
-
-  // ⑬ 把手的图标要和原生收起按钮一致（用户要求）
-  //    DSH 用的是 IconPanelLeftOutlineRegular。最好的做法是运行时照抄它的 svg，
-  //    而不是自己画一个"看起来像"的 —— DSH 换图标时我们也跟着换。
-  if (!/function learnRailIcon\(/.test(p) || !/railIconMarkup/.test(p)) {
-    console.error('39. 没有从原生按钮抄图标 —— 自己画的迟早和 DSH 不一致');
-    process.exit(1);
-  }
-  if (!/if \(railIconMarkup \|\| collapsed\) return;/.test(p)) {
-    console.error('39. 收起态也去抄图标了 —— 那时按钮里混着品牌标记(railMark)，抄到的不是收起图标');
-    process.exit(1);
-  }
-  if (!/svg\[class\*="panelIcon"\]/.test(p)) {
-    console.error('39. 抄图标没有优先认 panelIcon（类名是哈希的，按后缀嗅探才稳）');
-    process.exit(1);
-  }
-  // 默认图标也应该是"面板左"同族，而不是之前那个右箭头小三角
-  if (/polyline points="9 6 15 12 9 18"/.test(p)) {
-    console.error('39. 默认图标还是那个右箭头小三角 —— 与原生收起按钮不是一个东西');
-    process.exit(1);
-  }
-  if (!/rect x="3" y="4" width="18" height="16"/.test(p)) {
-    console.error('39. 默认图标不是"面板左"同族（应为带左侧分隔线的圆角矩形）');
-    process.exit(1);
-  }
-
-  // ⑩ 右侧栏在窄屏必须真的铺满
-  //    用户反馈："手机打开右侧栏明明是全屏模式，但右侧栏没有真的全屏。"
-  //    官方逻辑（dsh-client-ui-sidebar-right）：autoFullscreen = innerWidth < 768，
-  //    只有它成立时面板才拿到 width:100vw；否则按 width 部分宽度挂在右侧栏列
-  //    （手机上那条列恒为 0 宽）的右边缘上，盖住一半对话。
-  if (!/\[data-sidebar-right-panel="fullscreen"\]\{position:fixed !important;inset:0 !important/.test(pc)) {
-    console.error('39. 缺少"窄屏强制右侧栏铺满"的规则 —— 官方只在 innerWidth<768 时给它 100vw');
-    process.exit(1);
-  }
-  // ⚠ 反过来：**绝不要**给这条规则加底色。踩过 —— 加了 background:var(--dsw-alias-bg-base)
-  // 之后，窄屏下（官方把右侧栏判成 fullscreen）这个 fixed;inset:0 的元素等于
-  // 「给整个视口铺一块纯色矩形」，整页被盖住变成一色块：
-  // 用户："当宽度缩小到一定程度就变纯色了"（深色浅色都一样）。
-  // 而且面板自己本来就是不透明的（用户观察："正文没有透过来"）——
-  // 透上来的卡片是**层级**问题，给 z-index 就够了。
-  if (/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*background/.test(pc)) {
-    console.error('39. 右侧栏规则里加了底色 —— fixed;inset:0 + 底色 = 整页变一块纯色（踩过）');
-    process.exit(1);
-  }
-  if (!/\[data-sidebar-right-panel="fullscreen"\]\{[^}]*z-index:25 !important/.test(pc)) {
-    console.error('39. 右侧栏没有抬 z-index —— composer 的 8~10 会压在它上面（附件卡片就这么透出来的）');
-    process.exit(1);
-  }
-  // ⚠ 这条规则里**绝不能用 vw**：我们自己的 '@media(max-width:768px){html{zoom:80%}}'
-  //    会把 vw 打坏。真机取证：innerWidth=715、官方已判 fullscreen、面板实际只有
-  //    572 = 715×0.8、左边缘 143 = 715-572 —— 第一版用 width:100vw 修就是栽在这。
-  //    正确做法是 position:fixed + inset:0（走 ICB，是 zoom 感知的）。
-  if (/\[data-sidebar-right-panel[^\]]*\]\{[^}]*vw/.test(pc)) {
-    console.error('39. 右侧栏规则里用了 vw —— html{zoom:80%} 会让它少 20%（实测 715 → 572）');
-    process.exit(1);
-  }
-  if (!/function rightbarProbe\(/.test(pc) || !/out\.panelMode\s*=/.test(pc) || !/out\.panelW\s*=/.test(pc)) {
-    console.error('39. 缺少右侧栏取证（rightbarProbe）—— 再出问题还是只能猜');
-    process.exit(1);
-  }
-  if (!/function watchRightbar\(/.test(pc) || !/watchRightbar\(\)/.test(pc)) {
-    console.error('39. 缺少右侧栏观察器（或定义了没调用）—— 打开右侧栏那一刻的现场抓不到');
-    process.exit(1);
-  }
-  if (!/attributeFilter:\s*\['data-sidebar-right-panel'\]/.test(pc)) {
-    console.error('39. 右侧栏观察器没有盯 data-sidebar-right-panel');
-    process.exit(1);
-  }
-
-  // ⑪ **绝不能**给根节点加 zoom（历史上有一条 '@media(max-width:768px){html{zoom:80%}}'）
-  //    用户决定删掉它（官方设置里本来就有字体大小设置）。
-  //    删它的真正理由是它会**打坏 vw**：真机取证 innerWidth=715、官方判 fullscreen，
-  //    面板实际只有 572 = 715×0.8。官方在窄屏用 width:100vw 给右侧栏全屏，
-  //    所以那条 zoom 让右侧栏永远铺不满 —— 而且只在 <=768px 出现，>=768 看着正常。
-  if (/html\s*\{\s*zoom\s*:/i.test(pc) || /zoom\s*:\s*0?\.\d/i.test(pc)) {
-    console.error('39. 又给根节点加了 zoom —— 它会把 vw 打坏（实测 715 → 572），要放大请走官方字体设置');
-    process.exit(1);
-  }
-
-  console.log('39. 窄屏适配层 OK（注入脚本可独立解析 + 纯 CSS !important 去竖栏 + 三条 grid-column 钉轨（_rightbarCol，非 _detailsCol）+ 语义后缀选择器 + body class 作用域 + 设置弹窗纵向重排 + 右侧栏窄屏铺满与取证 + 把手钉左上并给标题行让位 + 原生按钮复用与图标照抄 + 默认开 + 收起/展开即时响应 + 无根节点 zoom）');
+  console.log('39. 侧边栏收起已移除 OK（不建把手、不注入样式、注入脚本可解析）');
 }
 
 // 40. 版本号约定：本地开发一律 `<目标版本>-dev.<N>`，且 CHANGELOG 必须有对应条目
@@ -3713,6 +3350,121 @@ await new Promise((res, rej) => {
     process.exit(1);
   }
   console.log('61. 启动通知 OK（DSH已启动 + 指令菜单键盘，键盘失败自动退化为纯文本）');
+}
+
+// 62. WebSocket 升级必须把客户端**握手后的第一帧**转给上游（head），否则连接立刻被断
+//
+// 2026-11-05 用户："局域网和 P2P 一直连接异常，公网隔一会就断"。
+// 日志实证：`WS 升级成功 2ms` 紧接 `存活 0s 原因=客户端错误 read ECONNRESET`，无限重连。
+//
+// 最终修复（dev.4）：**不再手工拼 101**，改成原始字节透传 ——
+// 用 net.connect 直连 DSH，把客户端原始请求行+头写过去（只改 host/cookie），
+// 之后双向纯字节转发。这样客户端看到的 101 就是 DSH 亲手写的，一个字节都不差。
+// （前三次"补 head / 补扩展头 / 补全部头"都被实测推翻，问题就在"手工重建"本身。）
+{
+  const proxySrc = fs.readFileSync(new URL('../lib/proxy.mjs', import.meta.url), 'utf8');
+  const code = proxySrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  if (!/function handleUpgrade\(req, socket, head\)/.test(code)) {
+    console.error('62. handleUpgrade 没有接收 head 参数');
+    process.exit(1);
+  }
+  // 必须是原始字节透传：net.connect + 双向 pipe，不能再出现手工拼 101
+  if (!/net\.connect\(TARGET_PORT, TARGET_HOST\)/.test(code)) {
+    console.error('62. handleUpgrade 没有用 net.connect 直连 DSH（应该原始字节透传，而不是重建 101）');
+    process.exit(1);
+  }
+  if (/HTTP\/1\.1 101 Switching Protocols/.test(code)) {
+    console.error('62. 还在手工拼 101 响应 —— 那会丢掉上游的协商头，导致浏览器立刻断连');
+    process.exit(1);
+  }
+  if (!/if \(head && head\.length\) up\.write\(head\);/.test(code)) {
+    console.error('62. 客户端握手后的第一帧没有转给上游');
+    process.exit(1);
+  }
+  if (!/up\.pipe\(socket\);[\s\S]{0,200}?socket\.pipe\(up\);/.test(code)) {
+    console.error('62. WebSocket 双向管道不完整');
+    process.exit(1);
+  }
+  // 请求侧必须原样带上客户端的头（扩展/子协议等），只改 host / cookie / origin
+  if (!/lk === 'host'/.test(code) || !/lk === 'cookie'/.test(code)) {
+    console.error('62. 请求头没有按"只改 host/cookie/origin、其余原样"转发');
+    process.exit(1);
+  }
+  // ★ Origin 必须改写（2026-11-05 真正的原因）：
+  //   DSH 对 WS 做同源校验，浏览器的跨站 Origin 一律回 HTTP 403。
+  //   实测：不带 Origin / Origin=127.0.0.1 → 101；Origin=局域网或公网地址 → 403。
+  if (!/const wsOrigin = 'http:\/\/' \+ TARGET_HOST \+ ':' \+ TARGET_PORT;/.test(code)) {
+    console.error('62. 没有构造上游 origin —— DSH 会因跨站 Origin 回 403，WebSocket 必然连不上');
+    process.exit(1);
+  }
+  if (!/if \(lk === 'origin'\) \{[\s\S]{0,160}?raw \+= 'origin: ' \+ wsOrigin/.test(code)) {
+    console.error('62. 请求头里的 origin 没有改写成上游地址（DSH 会 403）');
+    process.exit(1);
+  }
+  if (!/if \(!originWritten\) raw \+= 'origin: ' \+ wsOrigin/.test(code)) {
+    console.error('62. 客户端没带 origin 时没有补一个');
+    process.exit(1);
+  }
+  console.log('62. WS 升级 OK（透传 + head 转发 + host/cookie/origin 改写 + 双向 pipe）');
+}
+
+// 63. 访问令牌：持久化 + 可自定义 + ts.net 免 token + 公网仍需 token
+//
+// 用户（2026-11-05）三连问：
+//   "现在P2P也有token，局域网是不是没有，只保留公网的token，这个token可不可以自定义"
+//   "ts.net 不需要我的 tailscale 账户也能连上吗"
+//   "那直接去掉token不是更好"
+//
+// 结论：
+//   · 局域网/P2P 直连本来就免 token（私网来源）
+//   · **ts.net 免 token 是安全的** —— Tailscale 自己标注 `(tailnet only)`，
+//     未登录该 tailnet 的设备连 DNS 都解析不出来；但判定必须同时满足
+//     "Host 是 .ts.net" **且** "没有 cf-connecting-ip"（公网隧道一定带这个头，
+//     否则攻击者可以经隧道伪造 Host 绕过）
+//   · **公网必须保留 token**（唯一真正的暴露面）
+//   · token 改为 **可持久化**（重启不变 → 书签永久有效）且 **可自定义**
+{
+  const proxySrc = fs.readFileSync(new URL('../lib/proxy.mjs', import.meta.url), 'utf8');
+  const idxSrc = fs.readFileSync(new URL('../lib/index.mjs', import.meta.url), 'utf8');
+  const p = proxySrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const i = idxSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // ① token 可以由外层传入（不再无条件随机）
+  if (!/const token = sanitizeToken\(options\.token\) \|\| crypto\.randomBytes/.test(p)) {
+    console.error('63. proxy 的 token 不是"优先用传入值"，无法持久化/自定义');
+    process.exit(1);
+  }
+  // ② ts.net 免 token，且必须排除公网隧道（cf 头）
+  if (!/const viaCloudflare = !!\(req\.headers\['cf-connecting-ip'\] \|\| req\.headers\['cf-ray'\]\)/.test(p)) {
+    console.error('63. 没有识别 Cloudflare 隧道来源 —— 伪造 Host 就能绕过 token');
+    process.exit(1);
+  }
+  if (!/!viaCloudflare && \/\\\.ts\\\.net\$\/i\.test\(host\)/.test(p)) {
+    console.error('63. ts.net 没有免 token（或没有排除隧道来源）');
+    process.exit(1);
+  }
+  // ③ 令牌合法性校验（URL 安全字符 + 长度）
+  if (!/function sanitizeAccessToken\(v\)/.test(i) || !/\^\[A-Za-z0-9_\.-\]\+\$/.test(i)) {
+    console.error('63. 没有令牌合法性校验 —— 用户输入奇怪字符会破坏 cookie/URL');
+    process.exit(1);
+  }
+  // ④ 落盘 + 复用：启动时读 store，存盘后重启不变
+  if (!/store\.load\(\)\.webRemote \|\| \{\}\)\.token/.test(i) || !/store\.save\(\{ webRemote: \{ token: /) {
+    console.error('63. 令牌没有持久化 —— 重启后书签失效');
+    process.exit(1);
+  }
+  // ⑤ 两个接口
+  if (!/path: '\/remote\/token'/.test(i) || !/path: '\/remote\/token\/set'/.test(i)) {
+    console.error('63. 缺少 /remote/token 或 /remote/token/set 接口');
+    process.exit(1);
+  }
+  // ⑥ 重置 = 传空 → 生成新的随机值
+  if (!/want \? sanitizeAccessToken\(want\) : crypto\.randomBytes/.test(i)) {
+    console.error('63. "重置令牌"没有生成新的随机值');
+    process.exit(1);
+  }
+  console.log('63. 访问令牌 OK（持久化 + 可自定义 + ts.net 免 token 且排除隧道 + 公网仍要 token）');
 }
 
 proxy.close();
