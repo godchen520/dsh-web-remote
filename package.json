@@ -11,7 +11,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/check-inject.mjs && node --check lib/index.mjs && node test/test-qqmd.mjs && node test/test-dist.mjs"
+    "test": "node test/check-inject.mjs && node --check lib/index.mjs && node test/test-cert.mjs && node test/test-qqmd.mjs && node test/test-dist.mjs"
   },
   "keywords": [
     "deepseek-harness",
